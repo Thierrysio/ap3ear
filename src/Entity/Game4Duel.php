@@ -40,29 +40,32 @@ class Game4Duel
     private ?int $id = null;
 
     #[ORM\ManyToOne(targetEntity: Game4Game::class)]
-    #[ORM\JoinColumn(nullable: false)]
+    #[ORM\JoinColumn(name: 'game_id', referencedColumnName: 'id', nullable: false, onDelete: 'CASCADE')]
     private ?Game4Game $game = null;
 
     #[ORM\ManyToOne(targetEntity: Game4Player::class)]
-    #[ORM\JoinColumn(nullable: false)]
+    #[ORM\JoinColumn(name: 'player_a_id', referencedColumnName: 'id', nullable: false, onDelete: 'CASCADE')]
     private ?Game4Player $playerA = null;
 
     #[ORM\ManyToOne(targetEntity: Game4Player::class)]
-    #[ORM\JoinColumn(nullable: false)]
+    #[ORM\JoinColumn(name: 'player_b_id', referencedColumnName: 'id', nullable: false, onDelete: 'CASCADE')]
     private ?Game4Player $playerB = null;
 
     #[ORM\Column(type: 'string', length: 16)]
     private string $status = self::STATUS_PENDING;
 
+    #[ORM\Column(type: 'integer', options: ['default' => 0])]
+    private int $roundIndex = 0;
+
     // Relation plutôt qu’un int brut (gagnant nullable en cas d’égalité)
     #[ORM\ManyToOne(targetEntity: Game4Player::class)]
-    #[ORM\JoinColumn(nullable: true, onDelete: 'SET NULL')]
+    #[ORM\JoinColumn(name: 'winner_id', referencedColumnName: 'id', nullable: true, onDelete: 'SET NULL')]
     private ?Game4Player $winner = null;
 
-    #[ORM\Column(type: 'datetime_immutable')]
+    #[ORM\Column(type: 'datetime_immutable', name: 'created_at')]
     private \DateTimeImmutable $createdAt;
 
-    #[ORM\Column(type: 'datetime_immutable', nullable: true)]
+    #[ORM\Column(type: 'datetime_immutable', name: 'resolved_at', nullable: true)]
     private ?\DateTimeImmutable $resolvedAt = null;
 
     // Stockage simple : lignes séparées par \n
@@ -91,9 +94,9 @@ class Game4Duel
         return $this->game;
     }
 
-    public function setGame(Game4Game $g): self
+    public function setGame(Game4Game $game): self
     {
-        $this->game = $g;
+        $this->game = $game;
         return $this;
     }
 
@@ -102,9 +105,9 @@ class Game4Duel
         return $this->playerA;
     }
 
-    public function setPlayerA(Game4Player $p): self
+    public function setPlayerA(Game4Player $playerA): self
     {
-        $this->playerA = $p;
+        $this->playerA = $playerA;
         return $this;
     }
 
@@ -113,9 +116,9 @@ class Game4Duel
         return $this->playerB;
     }
 
-    public function setPlayerB(Game4Player $p): self
+    public function setPlayerB(Game4Player $playerB): self
     {
-        $this->playerB = $p;
+        $this->playerB = $playerB;
         return $this;
     }
 
@@ -124,9 +127,20 @@ class Game4Duel
         return $this->status;
     }
 
-    public function setStatus(string $s): self
+    public function setStatus(string $status): self
     {
-        $this->status = $s;
+        $this->status = $status;
+        return $this;
+    }
+
+    public function getRoundIndex(): int
+    {
+        return $this->roundIndex;
+    }
+
+    public function setRoundIndex(int $roundIndex): self
+    {
+        $this->roundIndex = $roundIndex;
         return $this;
     }
 
@@ -135,9 +149,9 @@ class Game4Duel
         return $this->winner;
     }
 
-    public function setWinner(?Game4Player $w): self
+    public function setWinner(?Game4Player $winner): self
     {
-        $this->winner = $w;
+        $this->winner = $winner;
         return $this;
     }
 
@@ -146,9 +160,9 @@ class Game4Duel
         return $this->createdAt;
     }
 
-    public function setCreatedAt(\DateTimeImmutable $d): self
+    public function setCreatedAt(\DateTimeImmutable $createdAt): self
     {
-        $this->createdAt = $d;
+        $this->createdAt = $createdAt;
         return $this;
     }
 
@@ -157,9 +171,9 @@ class Game4Duel
         return $this->resolvedAt;
     }
 
-    public function setResolvedAt(?\DateTimeImmutable $d): self
+    public function setResolvedAt(?\DateTimeImmutable $resolvedAt): self
     {
-        $this->resolvedAt = $d;
+        $this->resolvedAt = $resolvedAt;
         return $this;
     }
 
@@ -168,9 +182,9 @@ class Game4Duel
         return $this->logs;
     }
 
-    public function setLogs(?string $l): self
+    public function setLogs(?string $logs): self
     {
-        $this->logs = $l;
+        $this->logs = $logs;
         return $this;
     }
 
@@ -202,31 +216,31 @@ class Game4Duel
 
     public function removePlay(Game4DuelPlay $play): self
     {
-        if ($this->plays->removeElement($play) && $play->getDuel() === $this) {
-            $play->setDuel(null);
-        }
+        // Avec orphanRemoval=true et cascade remove,
+        // retirer de la collection suffit à provoquer la suppression.
+        $this->plays->removeElement($play);
         return $this;
     }
 
     // ==== Helpers ====
 
     /** Vrai si le joueur fait partie du duel */
-public function involves(Game4Player $player): bool
-{
-    return $this->getPlayerA()->getId() === $player->getId() 
-        || $this->getPlayerB()->getId() === $player->getId();
-}
+    public function involves(Game4Player $player): bool
+    {
+        return $this->getPlayerA()?->getId() === $player->getId()
+            || $this->getPlayerB()?->getId() === $player->getId();
+    }
 
-public function getOpponentFor(Game4Player $player): ?Game4Player
-{
-    if ($this->getPlayerA()->getId() === $player->getId()) {
-        return $this->getPlayerB();
+    public function getOpponentFor(Game4Player $player): ?Game4Player
+    {
+        if ($this->getPlayerA()?->getId() === $player->getId()) {
+            return $this->getPlayerB();
+        }
+        if ($this->getPlayerB()?->getId() === $player->getId()) {
+            return $this->getPlayerA();
+        }
+        return null;
     }
-    if ($this->getPlayerB()->getId() === $player->getId()) {
-        return $this->getPlayerA();
-    }
-    return null;
-}
 
     /**
      * Normalise l’ordre (A,B) pour limiter les doublons :
