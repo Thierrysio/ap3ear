@@ -43,217 +43,175 @@ final class DuelService
  * Résout le duel selon les règles et retourne {winnerId, logs[], pointsDelta, wonCardCode, wonCardLabel}.
  * IMPORTANT : le contrôleur doit déjà avoir persisté les Game4DuelPlay correspondants.
  */
-public function resolve(Game4Duel $duel, EntityManagerInterface $em): object
-{
-    $A = $duel->getPlayerA();
-    $B = $duel->getPlayerB();
 
-    // 1) Récup plays dans l’ordre (tu as déjà ce repo)
-    $plays = $this->playRepo->findBy(
-        ['duel' => $duel],
-        ['roundIndex' => 'ASC', 'submittedAt' => 'ASC']
-    );
+public function resolve(Game4Duel $duel, EntityManagerInterface $em): \stdClass
+    {
+        $result = new \stdClass();
+        $result->winnerId = null;
+        $result->logs     = [];
+        $result->effects  = [];
+        $result->patch    = ['A' => [], 'B' => []];
 
-    if (count($plays) === 0) {
-        // Rien joué => on clos quand même pour ne pas “rejouer par erreur”
-        $duel->setStatus(Game4Duel::STATUS_RESOLVED)
-             ->setWinner(null)
-             ->setResolvedAt(new \DateTimeImmutable());
-        $A->setLockedInDuel(false);
-        $B->setLockedInDuel(false);
+        $game    = $duel->getGame();
+        $playerA = $duel->getPlayerA();
+        $playerB = $duel->getPlayerB();
+
+        // ?? Si déjà résolu, on ne refait PAS les effets, on renvoie juste l’info
+        if ($duel->getStatus() === Game4Duel::STATUS_RESOLVED) {
+            $winner = $duel->getWinner();
+            $result->winnerId = $winner ? $winner->getId() : null;
+            if (method_exists($duel, 'getLogsArray')) {
+                $result->logs = $duel->getLogsArray();
+            } elseif (method_exists($duel, 'getLogs') && $duel->getLogs()) {
+                $result->logs = preg_split("/\r?\n/", $duel->getLogs());
+            }
+            return $result;
+        }
+
+        // ===== Récupérer tous les plays du duel =====
+        /** @var Game4DuelPlay[] $plays */
+        $plays = $this->playRepo->findAllByDuel($duel);
+
+        // Séparation NUM / spéciales
+        $numsByPlayer = [
+            $playerA->getId() => [],
+            $playerB->getId() => [],
+        ];
+        $hasSpecial = false;
+
+        foreach ($plays as $play) {
+            $type = strtoupper($play->getCardType());
+            if ($type === Game4DuelPlay::TYPE_NUM) {
+                $numsByPlayer[$play->getPlayer()->getId()][] = $play;
+            } else {
+                $hasSpecial = true;
+            }
+        }
+
+        // ?? Ici, on traite d'abord le cas "aucune carte spéciale" (règle 5)
+        if (!$hasSpecial) {
+            // Sommes des NUM
+            $sumA = 0;
+            foreach ($numsByPlayer[$playerA->getId()] as $p) {
+                $sumA += (int) $p->getNumValue();
+            }
+
+            $sumB = 0;
+            foreach ($numsByPlayer[$playerB->getId()] as $p) {
+                $sumB += (int) $p->getNumValue();
+            }
+
+            $result->logs[] = sprintf(
+                "Somme des cartes NUM : %s = %d, %s = %d",
+                $playerA->getName(), $sumA,
+                $playerB->getName(), $sumB
+            );
+
+            $winner = null;
+            $loser  = null;
+
+            if ($sumA > $sumB) {
+                $winner = $playerA;
+                $loser  = $playerB;
+            } elseif ($sumB > $sumA) {
+                $winner = $playerB;
+                $loser  = $playerA;
+            } else {
+                // Égalité -> personne ne perd/gagne de carte
+                $result->logs[] = "Égalité : aucune carte n'est transférée.";
+                $this->markDuelResolved($duel, null, $result->logs);
+                $em->flush();
+                return $result;
+            }
+
+            $result->winnerId = $winner->getId();
+            $result->logs[] = sprintf("Vainqueur du duel : %s", $winner->getName());
+
+            // ===== Trouver la carte NUM la plus haute du perdant =====
+            $loserPlays = $numsByPlayer[$loser->getId()] ?? [];
+            $highestPlay = null;
+            foreach ($loserPlays as $p) {
+                if ($highestPlay === null || (int)$p->getNumValue() > (int)$highestPlay->getNumValue()) {
+                    $highestPlay = $p;
+                }
+            }
+
+            $stolenCard = null;
+            if ($highestPlay) {
+                $stolenCard = $highestPlay->getCard();
+                if ($stolenCard instanceof Game4Card) {
+                    // Transférer du perdant -> gagnant, en main
+                    $stolenCard
+                        ->setOwner($winner)
+                        ->setZone(Game4Card::ZONE_HAND);
+                    $result->logs[] = sprintf(
+                        "La carte NUM la plus élevée (%s, valeur %d) est transférée de %s à %s.",
+                        $stolenCard->getDef()->getCode(),
+                        (int)$highestPlay->getNumValue(),
+                        $loser->getName(),
+                        $winner->getName()
+                    );
+                    $em->persist($stolenCard);
+                }
+            }
+
+            // ===== Remettre toutes les cartes jouées en main =====
+            foreach ($plays as $play) {
+                $card = $play->getCard();
+                if (!$card instanceof Game4Card) {
+                    continue;
+                }
+
+                // Si c'est la carte volée, on l'a déjà mise chez le vainqueur
+                if ($stolenCard && $card->getId() === $stolenCard->getId()) {
+                    $card->setZone(Game4Card::ZONE_HAND);
+                    continue;
+                }
+
+                // Sinon, elle revient dans la main de SON joueur d'origine
+                $card
+                    ->setOwner($play->getPlayer())
+                    ->setZone(Game4Card::ZONE_HAND);
+                $em->persist($card);
+            }
+
+            // Marquer le duel comme résolu avec gagnant + logs
+            $this->markDuelResolved($duel, $winner, $result->logs);
+            $em->flush();
+
+            return $result;
+        }
+
+        // TODO : gérer ici les cas avec cartes spéciales (ZOMBIE / SHOTGUN / VACCINE)
+        // Pour l’instant on log juste et on ne change pas les cartes.
+        $result->logs[] = "Résolution avec cartes spéciales non encore implémentée dans DuelService::resolve.";
+        $this->markDuelResolved($duel, null, $result->logs);
         $em->flush();
 
-        return (object)[
-            'winnerId' => null,
-            'messageForA' => "Aucune carte jouée.",
-            'messageForB' => "Aucune carte jouée.",
-            'logs' => ['Aucune carte jouée.'],
-            'effects' => [],
-            'patch' => ['A' => ['handDelta'=>['add'=>[], 'remove'=>[]]], 'B' => ['handDelta'=>['add'=>[], 'remove'=>[]]]]
-        ];
+        return $result;
     }
 
-    $logs = [];
-    $effects = [];
-    $patchA = ['handDelta'=>['add'=>[], 'remove'=>[]], 'isZombie'=>null, 'isEliminated'=>null];
-    $patchB = ['handDelta'=>['add'=>[], 'remove'=>[]], 'isZombie'=>null, 'isEliminated'=>null];
-
-    // 2) Carte spéciale la plus récente (si plusieurs, on applique la dernière)
-    $lastSpecial = null;
-    foreach ($plays as $p) {
-        if (in_array($p->getCardType(), ['ZOMBIE','SHOTGUN','VACCINE'], true)) {
-            $lastSpecial = $p;
+    /**
+     * Factorise la mise à jour de l'entité Duel
+     */
+    private function markDuelResolved(Game4Duel $duel, ?Game4Player $winner, array $logs): void
+    {
+        if (method_exists($duel, 'markResolved')) {
+            $duel->markResolved($winner, $logs);
+            return;
         }
-    }
 
-    // Helpers locaux
-    $highestNumPlayed = function(Game4Player $p) use ($plays): ?int {
-        $max = null;
-        foreach ($plays as $pl) {
-            if ($pl->getPlayer()->getId() === $p->getId() && $pl->getCardType()==='NUM') {
-                $v = (int)$pl->getNumValue();
-                $max = $max === null ? $v : max($max, $v);
-            }
-        }
-        return $max;
-    };
-    $sumNums = function(Game4Player $p) use ($plays): int {
-        $s = 0;
-        foreach ($plays as $pl) {
-            if ($pl->getPlayer()->getId() === $p->getId() && $pl->getCardType()==='NUM') {
-                $s += (int)$pl->getNumValue();
-            }
-        }
-        return $s;
-    };
-    $giveSpecific = function(Game4Game $game, Game4Player $to, string $code) use ($em, &$logs, &$effects, &$patchA, &$patchB, $A, $B) {
-        // Essaie depuis le deck sinon “forge” (bonus)
-        $def = $em->getRepository(Game4CardDef::class)->findOneBy(['code' => $code]);
-        if (!$def) return;
-
-        $card = (new Game4Card())
-            ->setGame($game)
-            ->setDef($def)
-            ->setZone(Game4Card::ZONE_HAND)
-            ->setOwner($to)
-            ->setToken(hash('sha256', uniqid('bonus', true)));
-        $em->persist($card);
-        $effects[] = ['type'=>'GAIN_CARD','playerId'=>$to->getId(),'code'=>$code];
-        $logs[] = $to->getName()." reçoit une carte ".$code.".";
-        $patch = ($to->getId()===$A->getId()) ? $patchA : $patchB;
-        $patch['handDelta']['add'][] = ['code'=>$code];
-        if ($to->getId()===$A->getId()) $patchA = $patch; else $patchB = $patch;
-    };
-    $removeOneZombieFromHand = function(Game4Player $p) use ($em, &$logs, &$effects, &$patchA, &$patchB, $A, $B) {
-        foreach ($p->getCards() as $c) {
-            if ($c->getZone()===Game4Card::ZONE_HAND && $c->getDef()->getCode()==='ZOMBIE') {
-                $c->setZone(Game4Card::ZONE_DISCARD);
-                $effects[] = ['type'=>'LOSE_CARD','playerId'=>$p->getId(),'code'=>'ZOMBIE'];
-                $logs[] = $p->getName()." perd une carte ZOMBIE.";
-                $patch = ($p->getId()===$A->getId()) ? $patchA : $patchB;
-                $patch['handDelta']['remove'][] = ['code'=>'ZOMBIE'];
-                if ($p->getId()===$A->getId()) $patchA = $patch; else $patchB = $patch;
-                return;
-            }
-        }
-    };
-    $loseHighestNumPlayedInThisDuel = function(Game4Player $p) use ($em, &$logs, &$effects, &$patchA, &$patchB, $A, $B, $highestNumPlayed) {
-        $max = $highestNumPlayed($p);
-        if ($max===null) return;
-        // On journalise la perte (la carte “jouée” est déjà en table, on simule l’effet de perte)
-        $effects[] = ['type'=>'LOSE_NUM_HIGHEST','playerId'=>$p->getId(),'numValue'=>$max];
-        $logs[] = $p->getName()." perd sa carte NUM la plus élevée jouée (".$max.").";
-        // Pas de retrait de main (elle n'est plus en main), mais on peut afficher un effet UI côté client
-    };
-    $transferHighestNumPlayedToOpponent = function(Game4Player $from, Game4Player $to) use (&$logs, &$effects, $highestNumPlayed) {
-        $max = $highestNumPlayed($from);
-        if ($max===null) return;
-        $effects[] = ['type'=>'TRANSFER_NUM_HIGHEST','from'=>$from->getId(),'to'=>$to->getId(),'numValue'=>$max];
-        $logs[] = "Transfert de la plus haute NUM jouée (".$max.") de ".$from->getName()." vers ".$to->getName().".";
-    };
-    $eliminate = function(Game4Player $p) use (&$logs, &$effects, &$patchA, &$patchB, $A, $B) {
-        $p->setEliminated(true);
-        $effects[] = ['type'=>'ELIMINATION','playerId'=>$p->getId()];
-        $logs[] = $p->getName()." est éliminé.";
-        if ($p->getId()===$A->getId()) $patchA['isEliminated'] = true; else $patchB['isEliminated'] = true;
-    };
-    $setZombie = function(Game4Player $p, bool $z) use (&$logs, &$effects, &$patchA, &$patchB, $A, $B) {
-        $p->setZombie($z);
-        $effects[] = ['type'=>'STATE_CHANGE','playerId'=>$p->getId(),'isZombie'=>$z];
-        $logs[] = $p->getName()." devient ".($z?'zombie':'humain').".";
-        if ($p->getId()===$A->getId()) $patchA['isZombie'] = $z; else $patchB['isZombie'] = $z;
-    };
-
-    $game = $duel->getGame();
-    $winner = null;
-
-    // 3) Appliquer les règles spéciales si présentes
-    if ($lastSpecial) {
-        $actor = $lastSpecial->getPlayer();
-        $target = ($actor->getId()===$A->getId()) ? $B : $A;
-
-        switch ($lastSpecial->getCardType()) {
-            case 'ZOMBIE':
-                if (!$target->isZombie()) {
-                    // L'adversaire devient zombie et +1 ZOMBIE pour chacun
-                    $setZombie($target, true);
-                    $giveSpecific($game, $actor, 'ZOMBIE');
-                    $giveSpecific($game, $target, 'ZOMBIE');
-                    // Pas de vainqueur imposé par la carte : on tranche par impact ? La règle dit uniquement side-effect
-                } else {
-                    // Adversaire déjà zombie ? le joueur perd sa NUM la plus élevée jouée dans CE duel
-                    $loseHighestNumPlayedInThisDuel($actor);
-                }
-                break;
-
-            case 'SHOTGUN':
-                if ($target->isZombie()) {
-                    // Élimination du zombie
-                    $eliminate($target);
-                } else {
-                    // Ciblé humain : perd sa carte ZOMBIE (si en main) + sa NUM la plus élevée jouée
-                    $removeOneZombieFromHand($target);
-                    $loseHighestNumPlayedInThisDuel($target);
-                }
-                break;
-
-            case 'VACCINE':
-                if ($target->isZombie()) {
-                    // Le zombie redevient humain, gagne un SHOTGUN, perd sa ZOMBIE
-                    $setZombie($target, false);
-                    $giveSpecific($game, $target, 'SHOTGUN');
-                    $removeOneZombieFromHand($target);
-                } else {
-                    // Vaccin inutile : le joueur perd son VACCINE + transfert de sa NUM la plus élevée à l’adversaire
-                    $effects[] = ['type'=>'LOSE_CARD','playerId'=>$actor->getId(),'code'=>'VACCINE'];
-                    $logs[] = $actor->getName()." perd sa carte VACCINE (usage inutile).";
-                    $transferHighestNumPlayedToOpponent($actor, $target);
-                }
-                break;
-        }
-    }
-
-    // 4) Si pas de spéciale, départage par somme des NUM (règle 5)
-    if (!$lastSpecial) {
-        $sumA = $sumNums($A);
-        $sumB = $sumNums($B);
-        if ($sumA > $sumB) {
-            $winner = $A;
-            $loseHighestNumPlayedInThisDuel($B);
-        } elseif ($sumB > $sumA) {
-            $winner = $B;
-            $loseHighestNumPlayedInThisDuel($A);
-        } else {
-            // Égalité : pas de vainqueur, pas d'effet supplémentaire
-            $logs[] = "Égalité sur la somme des NUM (".$sumA." = ".$sumB.").";
-        }
-    }
-
-    // 5) Close duel
-    if ($winner) {
+        $duel->setStatus(Game4Duel::STATUS_RESOLVED);
         $duel->setWinner($winner);
-        $logs[] = $winner->getName()." remporte le duel.";
+        if (method_exists($duel, 'setResolvedAt')) {
+            $duel->setResolvedAt(new \DateTimeImmutable());
+        }
+        if (method_exists($duel, 'setLogsArray')) {
+            $duel->setLogsArray($logs);
+        } elseif (method_exists($duel, 'setLogs')) {
+            $duel->setLogs(implode("\n", $logs));
+        }
     }
-    $duel->setStatus(Game4Duel::STATUS_RESOLVED)
-         ->setResolvedAt(new \DateTimeImmutable());
-
-    // Déverrouille
-    $A->setLockedInDuel(false);
-    $B->setLockedInDuel(false);
-
-    $em->flush();
-
-    $winnerId = $winner ? $winner->getId() : null;
-    return (object)[
-        'winnerId' => $winnerId,
-        'messageForA' => $winnerId === $A->getId() ? "? Vous avez gagné !" : ($winnerId===null ? "Égalité." : "? Vous avez perdu..."),
-        'messageForB' => $winnerId === $B->getId() ? "? Vous avez gagné !" : ($winnerId===null ? "Égalité." : "? Vous avez perdu..."),
-        'logs'   => $logs,
-        'effects'=> $effects,
-        'patch'  => ['A'=>$patchA, 'B'=>$patchB],
-    ];
-}
-
 // NOUVELLE METHODE : Vérifier si une carte spéciale a été jouée
 private function hasSpecialCardInPlays(array $plays): bool
 {
