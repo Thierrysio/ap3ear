@@ -1,0 +1,123 @@
+ 
+diff --git a/src/Services/DuelService.php b/src/Services/DuelService.php
+index 074a21e66e6c4a89ab385b3c00261c49b0ce4fc5..d6e308d7135cb69a8f974016f9fec90d89f20a4e 100644
+--- a/src/Services/DuelService.php
++++ b/src/Services/DuelService.php
+@@ -25,54 +25,56 @@ use Doctrine\ORM\EntityManagerInterface;
+ final class DuelService
+ {
+     public function __construct(
+         private Game4DuelPlayRepository $playRepo,
+         private Game4CardRepository $cardRepo
+     ) {}
+ 
+     public function bothSubmitted(Game4Duel $duel): bool
+     {
+         return \count($this->playRepo->findAllByDuel($duel)) >= 2;
+     }
+ 
+     public function hasSubmitted(Game4Duel $duel, Game4Player $player): bool
+     {
+         return (bool)$this->playRepo->findOneByDuelAndPlayer($duel, $player);
+     }
+ 
+ /**
+  * Rsout le duel selon les rgles et retourne {winnerId, logs[], pointsDelta, wonCardCode, wonCardLabel}.
+  * IMPORTANT : le contrleur doit dj avoir persist les Game4DuelPlay correspondants.
+  */
+ 
+ public function resolve(Game4Duel $duel, EntityManagerInterface $em): \stdClass
+     {
+         $result = new \stdClass();
+-        $result->winnerId = null;
+-        $result->logs     = [];
+-        $result->effects  = [];
+-        $result->patch    = ['A' => [], 'B' => []];
++        $result->winnerId    = null;
++        $result->logs        = [];
++        $result->effects     = [];
++        $result->patch       = ['A' => [], 'B' => []];
++        $result->wonCardCode = null;
++        $result->wonCardLabel = null;
+ 
+         $game    = $duel->getGame();
+         $playerA = $duel->getPlayerA();
+         $playerB = $duel->getPlayerB();
+ 
+         // ?? Si dj rsolu, on ne refait PAS les effets, on renvoie juste linfo
+         if ($duel->getStatus() === Game4Duel::STATUS_RESOLVED) {
+             $winner = $duel->getWinner();
+             $result->winnerId = $winner ? $winner->getId() : null;
+             if (method_exists($duel, 'getLogsArray')) {
+                 $result->logs = $duel->getLogsArray();
+             } elseif (method_exists($duel, 'getLogs') && $duel->getLogs()) {
+                 $result->logs = preg_split("/\r?\n/", $duel->getLogs());
+             }
+             return $result;
+         }
+ 
+         // ===== Rcuprer tous les plays du duel =====
+         /** @var Game4DuelPlay[] $plays */
+         $plays = $this->playRepo->findAllByDuel($duel);
+ 
+         // Sparation NUM / spciales
+         $numsByPlayer = [
+             $playerA->getId() => [],
+             $playerB->getId() => [],
+@@ -122,50 +124,55 @@ public function resolve(Game4Duel $duel, EntityManagerInterface $em): \stdClass
+                 $this->markDuelResolved($duel, null, $result->logs);
+                 $em->flush();
+                 return $result;
+             }
+ 
+             $result->winnerId = $winner->getId();
+             $result->logs[] = sprintf("Vainqueur du duel : %s", $winner->getName());
+ 
+             // ===== Trouver la carte NUM la plus haute du perdant =====
+             $loserPlays = $numsByPlayer[$loser->getId()] ?? [];
+             $highestPlay = null;
+             foreach ($loserPlays as $p) {
+                 if ($highestPlay === null || (int)$p->getNumValue() > (int)$highestPlay->getNumValue()) {
+                     $highestPlay = $p;
+                 }
+             }
+ 
+             $stolenCard = null;
+             if ($highestPlay) {
+                 $stolenCard = $highestPlay->getCard();
+                 if ($stolenCard instanceof Game4Card) {
+                     // Transfrer du perdant -> gagnant, en main
+                     $stolenCard
+                         ->setOwner($winner)
+                         ->setZone(Game4Card::ZONE_HAND);
++                    $def = $stolenCard->getDef();
++                    if ($def instanceof Game4CardDef) {
++                        $result->wonCardCode  = $def->getCode();
++                        $result->wonCardLabel = method_exists($def, 'getLabel') ? $def->getLabel() : null;
++                    }
+                     $result->logs[] = sprintf(
+                         "La carte NUM la plus leve (%s, valeur %d) est transfre de %s  %s.",
+                         $stolenCard->getDef()->getCode(),
+                         (int)$highestPlay->getNumValue(),
+                         $loser->getName(),
+                         $winner->getName()
+                     );
+                     $em->persist($stolenCard);
+                 }
+             }
+ 
+             // ===== Remettre toutes les cartes joues en main =====
+             foreach ($plays as $play) {
+                 $card = $play->getCard();
+                 if (!$card instanceof Game4Card) {
+                     continue;
+                 }
+ 
+                 // Si c'est la carte vole, on l'a dj mise chez le vainqueur
+                 if ($stolenCard && $card->getId() === $stolenCard->getId()) {
+                     $card->setZone(Game4Card::ZONE_HAND);
+                     continue;
+                 }
+ 
+                 // Sinon, elle revient dans la main de SON joueur d'origine
+ 
