@@ -43,8 +43,10 @@ final class DuelService
  * Résout le duel selon les règles et retourne {winnerId, logs[], pointsDelta, wonCardCode, wonCardLabel}.
  * IMPORTANT : le contrôleur doit déjà avoir persisté les Game4DuelPlay correspondants.
  */
+
 public function resolve(Game4Duel $duel, EntityManagerInterface $em): \stdClass
 {
+    // Objet de retour standard
     $result = new \stdClass();
     $result->winnerId     = null;
     $result->logs         = [];
@@ -57,179 +59,182 @@ public function resolve(Game4Duel $duel, EntityManagerInterface $em): \stdClass
     $playerA = $duel->getPlayerA();
     $playerB = $duel->getPlayerB();
 
-    // Si déjà résolu ? on renvoie juste ce qui est stocké
+    if (!$game || !$playerA || !$playerB) {
+        $result->logs[] = 'Duel incohérent (game ou players manquants).';
+        return $result;
+    }
+
+    $idA = $playerA->getId();
+    $idB = $playerB->getId();
+
+    // 1) Si le duel est déjà résolu : on renvoie ce qui est stocké sur l'entité
     if ($duel->getStatus() === Game4Duel::STATUS_RESOLVED) {
-        $winner = $duel->getWinner();
-        $result->winnerId = $winner ? $winner->getId() : null;
+        if (method_exists($duel, 'getWinner')) {
+            $winner = $duel->getWinner();
+            if ($winner instanceof Game4Player) {
+                $result->winnerId = $winner->getId();
+            }
+        }
 
         if (method_exists($duel, 'getLogsArray')) {
             $result->logs = $duel->getLogsArray();
         } elseif (method_exists($duel, 'getLogs') && $duel->getLogs()) {
-            $result->logs = preg_split("/\r?\n/", $duel->getLogs());
+            $result->logs = preg_split("/\r?\n/", (string)$duel->getLogs());
         }
 
         return $result;
     }
 
-    // ===== Récupérer tous les plays du duel =====
+    // 2) Récupérer tous les coups du duel
     /** @var Game4DuelPlay[] $plays */
     $plays = $this->playRepo->findAllByDuel($duel);
 
-    // Si aucun coup, rien à faire
     if (!$plays) {
+        // Aucun coup joué : duel clairement pas prêt
+        $result->logs[] = 'Aucune carte jouée.';
         return $result;
     }
 
-    // Comptes + séparation NUM / specials
-    $numsByPlayer = [
-        $playerA->getId() => [],
-        $playerB->getId() => [],
-    ];
+    // 3) Compter les coups par joueur + détecter si une carte spéciale est en jeu
     $countByPlayer = [
-        $playerA->getId() => 0,
-        $playerB->getId() => 0,
+        $idA => 0,
+        $idB => 0,
     ];
+
+    $numsByPlayer = [
+        $idA => [],
+        $idB => [],
+    ];
+
     $hasSpecial = false;
 
     foreach ($plays as $play) {
-        $pid  = $play->getPlayer()->getId();
-        $type = strtoupper((string)$play->getCardType());
+        $player = $play->getPlayer();
+        if (!$player instanceof Game4Player) {
+            continue;
+        }
+
+        $pid = $player->getId();
+
+        if ($pid !== $idA && $pid !== $idB) {
+            // Sécurité : on ignore tout play qui ne correspond pas à A ou B
+            continue;
+        }
 
         $countByPlayer[$pid]++;
 
-        if ($type === Game4DuelPlay::TYPE_NUM) {
-            $numsByPlayer[$pid][] = $play;
-        } else {
+        $type = strtoupper((string)$play->getCardType());
+
+        if (in_array($type, [
+            Game4DuelPlay::TYPE_ZOMBIE,
+            Game4DuelPlay::TYPE_SHOTGUN,
+            Game4DuelPlay::TYPE_VACCINE,
+        ], true)) {
             $hasSpecial = true;
+        } elseif ($type === Game4DuelPlay::TYPE_NUM) {
+            $numsByPlayer[$pid][] = $play;
         }
     }
 
-    // ===== Est-ce que le duel est "prêt" à être résolu ? =====
+    // 4) Critère "duel prêt" :
+    //    - soit au moins une carte spéciale jouée
+    //    - soit 4 cartes ou plus pour A ET 4 cartes ou plus pour B
     $ready = false;
 
-    // 1) Carte spéciale présente ? duel prêt (les règles spéciales décideront)
     if ($hasSpecial) {
+        $ready = true;
+    } elseif ($countByPlayer[$idA] >= 4 && $countByPlayer[$idB] >= 4) {
         $ready = true;
     }
 
-    // 2) Sinon, on attend 4 cartes de chaque joueur
-    if (!$hasSpecial) {
-        if ($countByPlayer[$playerA->getId()] >= 4 && $countByPlayer[$playerB->getId()] >= 4) {
-            $ready = true;
-        }
-    }
-
-    // Si pas prêt ? on ne touche pas à l'état du duel
     if (!$ready) {
-        // (optionnel) un petit log interne
-        $result->logs[] = 'duel_not_ready_yet';
+        // IMPORTANT : on NE MODIFIE PAS le duel, pas de flush => status reste PENDING
+        $result->logs[] = sprintf(
+            'duel_not_ready_yet (A=%d, B=%d, special=%s)',
+            $countByPlayer[$idA],
+            $countByPlayer[$idB],
+            $hasSpecial ? 'yes' : 'no'
+        );
         return $result;
     }
 
-    // ?? À partir d'ici : le duel doit être RÉSOLU une bonne fois pour toutes
-
-    // CAS 1 : pas de cartes spéciales ? règle 5 (somme des NUM, vol de la plus haute carte NUM)
+    // 5) CAS 1 : aucun spécial ? duel classique par somme des NUM
     if (!$hasSpecial) {
-        $sumA = 0;
-        foreach ($numsByPlayer[$playerA->getId()] as $p) {
-            $sumA += (int)$p->getNumValue();
-        }
-
-        $sumB = 0;
-        foreach ($numsByPlayer[$playerB->getId()] as $p) {
-            $sumB += (int)$p->getNumValue();
-        }
+        $sumA = $this->sumNumericForPlayer($plays, $playerA);
+        $sumB = $this->sumNumericForPlayer($plays, $playerB);
 
         $result->logs[] = sprintf(
-            "Somme des cartes NUM : %s = %d, %s = %d",
+            'Somme des cartes NUM : %s = %d, %s = %d',
             $playerA->getName(),
             $sumA,
             $playerB->getName(),
             $sumB
         );
 
-        $winner = null;
-        $loser  = null;
-
-        if ($sumA > $sumB) {
-            $winner = $playerA;
-            $loser  = $playerB;
-        } elseif ($sumB > $sumA) {
-            $winner = $playerB;
-            $loser  = $playerA;
-        } else {
-            // Égalité : pas de transfert de carte
+        if ($sumA === $sumB) {
+            // Égalité : pas de transfert
             $result->logs[] = "Égalité : aucune carte n'est transférée.";
             $this->markDuelResolved($duel, null, $result->logs);
             $em->flush();
             return $result;
         }
 
+        // Déterminer gagnant / perdant
+        $winner = $sumA > $sumB ? $playerA : $playerB;
+        $loser  = $sumA > $sumB ? $playerB : $playerA;
+
         $result->winnerId = $winner->getId();
         $result->logs[] = sprintf("Vainqueur du duel : %s", $winner->getName());
 
-        // Trouver la carte NUM la plus haute du perdant
+        // Chercher la carte NUM la plus élevée du perdant
         $loserPlays = $numsByPlayer[$loser->getId()] ?? [];
         $highestPlay = null;
+
         foreach ($loserPlays as $p) {
             if ($highestPlay === null || (int)$p->getNumValue() > (int)$highestPlay->getNumValue()) {
                 $highestPlay = $p;
             }
         }
 
-        $stolenCard = null;
         if ($highestPlay) {
             $stolenCard = $highestPlay->getCard();
+
             if ($stolenCard instanceof Game4Card) {
+                $def = $stolenCard->getDef();
+
+                // On considère que la carte a été défaussée lors du submit ;
+                // ici on la "récupère" dans la main du gagnant.
                 $stolenCard
                     ->setOwner($winner)
                     ->setZone(Game4Card::ZONE_HAND);
 
-                $def = $stolenCard->getDef();
+                $em->persist($stolenCard);
+
                 if ($def instanceof Game4CardDef) {
                     $result->wonCardCode  = $def->getCode();
                     $result->wonCardLabel = method_exists($def, 'getLabel') ? $def->getLabel() : null;
                 }
 
                 $result->logs[] = sprintf(
-                    "La carte NUM la plus élevée (%s, valeur %d) est transférée de %s à %s.",
-                    $stolenCard->getDef()->getCode(),
+                    "La carte NUM la plus élevée (valeur %d) est transférée de %s à %s.",
                     (int)$highestPlay->getNumValue(),
                     $loser->getName(),
                     $winner->getName()
                 );
-
-                $em->persist($stolenCard);
             }
         }
 
-        // Remettre toutes les cartes jouées en main (sauf la volée déjà déplacée)
-        foreach ($plays as $play) {
-            $card = $play->getCard();
-            if (!$card instanceof Game4Card) {
-                continue;
-            }
-
-            if ($stolenCard && $card->getId() === $stolenCard->getId()) {
-                $card->setZone(Game4Card::ZONE_HAND);
-                continue;
-            }
-
-            $card
-                ->setOwner($play->getPlayer())
-                ->setZone(Game4Card::ZONE_HAND);
-
-            $em->persist($card);
-        }
-
+        // Les autres cartes restent en défausse (ZONE_DISCARD), on ne les remet pas en main.
         $this->markDuelResolved($duel, $winner, $result->logs);
         $em->flush();
 
         return $result;
     }
 
-    // CAS 2 : il y a des cartes spéciales ? plus tard : implémenter ZOMBIE/SHOTGUN/VACCINE
-    $result->logs[] = "Résolution avec cartes spéciales non encore implémentée.";
+    // 6) CAS 2 : il y a au moins une carte spéciale
+    // ?? Ici tu pourras réinjecter A TERME toute ta logique ZOMBIE / SHOTGUN / VACCINE.
+    // Pour l’instant, on marque simplement le duel comme résolu sans changer les cartes.
+    $result->logs[] = "Résolution avec cartes spéciales : logique détaillée à implémenter.";
     $this->markDuelResolved($duel, null, $result->logs);
     $em->flush();
 
