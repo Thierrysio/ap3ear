@@ -1038,8 +1038,8 @@ public function g4_duel_submit(Request $req): JsonResponse
 {
     $data = json_decode($req->getContent(), true) ?? [];
 
-    $duelId    = (int)($data['gameId']    ?? 0);
-    $equipeId  = (int)($data['equipeId']  ?? 0); // équipe du joueur appelant
+    $duelId    = (int)($data['duelId']    ?? 0);
+    $equipeId  = (int)($data['playerId']  ?? 0); // équipe du joueur appelant
     $cardToken = (string)($data['cardToken'] ?? '');
 
     /** @var Game4Duel|null $duel */
@@ -1126,7 +1126,7 @@ public function g4_duel_submit(Request $req): JsonResponse
         ], 403);
     }
 
-    $opponent = $duel->getOpponentOf($player);
+    $opponent = $duel->getOpponentFor($player);
     if (!$opponent) {
         return $this->jsonOk([
             'success'  => false,
