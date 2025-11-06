@@ -583,18 +583,18 @@ final class ApiController extends AbstractController
 
     
         // =========================================================
-    //  HELPER : Donne la carte spéciale obligatoire selon le rôle
+    //  HELPER : Donne la carte spÃ©ciale obligatoire selon le rÃ´le
     //           (HUMAN ? SHOTGUN, ZOMBIE ? ZOMBIE)
     // =========================================================
 
     
-// Donne au joueur une carte précise $code.
+// Donne au joueur une carte prÃ©cise $code.
 // 1) tente de la prendre dans le DECK
-// 2) sinon en forge UNE pour garantir la règle
-// ? Renvoie la Game4Card attribuée (ou null en cas d'échec improbable)
+// 2) sinon en forge UNE pour garantir la rÃ¨gle
+// ? Renvoie la Game4Card attribuÃ©e (ou null en cas d'Ã©chec improbable)
 private function giveSpecificFromDeckOrForge(Game4Game $game, Game4Player $player, string $code): ?Game4Card
 {
-    // Récupère/assure la définition
+    // RÃ©cupÃ¨re/assure la dÃ©finition
     $def = $this->defRepo->findOneByCode($code);
     if (!$def) {
         $def = (new Game4CardDef())
@@ -636,8 +636,8 @@ private function giveSpecificFromDeckOrForge(Game4Game $game, Game4Player $playe
 
 
 
-// JOIN — ne donne QUE la carte obligatoire selon le rôle (pas de main à 7 ici)
-// JOIN — ne donne QUE la carte obligatoire selon le rôle (pas de main à 7 ici)
+// JOIN â€” ne donne QUE la carte obligatoire selon le rÃ´le (pas de main Ã  7 ici)
+// JOIN â€” ne donne QUE la carte obligatoire selon le rÃ´le (pas de main Ã  7 ici)
 #[Route('/api/mobile/join', name: 'g4_join', methods: ['POST'])]
 public function g4_join(Request $req): JsonResponse
 {
@@ -649,7 +649,7 @@ public function g4_join(Request $req): JsonResponse
         return $this->jsonOk(['equipeId_required' => 'equipeId requis'], 400);
     }
 
-    // Partie en cours (création si besoin)
+    // Partie en cours (crÃ©ation si besoin)
     $game = $this->gameRepo->findRunning();
     if (!$game) {
         $game = (new Game4Game())
@@ -659,10 +659,10 @@ public function g4_join(Request $req): JsonResponse
         $this->em->flush();
     }
 
-    // Deck : définitions + cartes si besoin
+    // Deck : dÃ©finitions + cartes si besoin
     $this->ensureDeck($game);
 
-    // Récupérer/créer le joueur par equipeId
+    // RÃ©cupÃ©rer/crÃ©er le joueur par equipeId
     $player = $this->playerRepo->findOneByGameAndEquipe($game, $equipeId);
     if (!$player) {
         $player = (new Game4Player())
@@ -675,7 +675,7 @@ public function g4_join(Request $req): JsonResponse
         $this->em->persist($player);
         $this->em->flush();
     } else {
-        // Optionnel : si tu veux "reset" la main à chaque nouveau join
+        // Optionnel : si tu veux "reset" la main Ã  chaque nouveau join
         $handCards = $this->cardRepo->findHandByPlayer($player);
         if (\count($handCards) > 0) {
             foreach ($handCards as $c) {
@@ -686,7 +686,7 @@ public function g4_join(Request $req): JsonResponse
         }
     }
 
-    // Attribution des rôles (ta logique existante)
+    // Attribution des rÃ´les (ta logique existante)
     $players = $this->playerRepo->findAllByGame($game);
     $total   = \count($players);
     if ($total > 0) {
@@ -714,7 +714,7 @@ public function g4_join(Request $req): JsonResponse
         }
     }
 
-    // ? 1) Si main vide, donner la carte obligatoire selon le rôle
+    // ? 1) Si main vide, donner la carte obligatoire selon le rÃ´le
     $handCount = $this->cardRepo->countByOwnerAndZone($player, Game4Card::ZONE_HAND);
     if ($handCount === 0) {
         $this->giveMandatorySpecialOnFirstJoin($game, $player);
@@ -722,7 +722,7 @@ public function g4_join(Request $req): JsonResponse
     }
 
     // ? 2) Garantir : tout joueur ZOMBIE doit avoir au moins UNE carte ZOMBIE
-    //    (y compris si son rôle vient de changer à ce join)
+    //    (y compris si son rÃ´le vient de changer Ã  ce join)
     foreach ($players as $p) {
         if ($p->isZombie()) {
             $hasZombieCard = $this->cardRepo->handHasCode($p, 'ZOMBIE');
@@ -733,15 +733,15 @@ public function g4_join(Request $req): JsonResponse
     }
     $this->em->flush();
 
-    // Réponse state pour le joueur qui vient de joindre
+    // RÃ©ponse state pour le joueur qui vient de joindre
     $state = $this->buildG4State($game, $player);
     return $this->jsonOk($state);
 }
 
 // =========================================================
-// DRAW — Pioche UNE carte en respectant :
-// - 1ère carte = obligatoire (SHOTGUN si humain, ZOMBIE si zombie)
-// - Toujours viser >=5 NUM en main (forcer NUM si nécessaire)
+// DRAW â€” Pioche UNE carte en respectant :
+// - 1Ã¨re carte = obligatoire (SHOTGUN si humain, ZOMBIE si zombie)
+// - Toujours viser >=5 NUM en main (forcer NUM si nÃ©cessaire)
 // =========================================================
 #[Route('/api/mobile/draw', name: 'g4_draw', methods: ['POST'])]
 public function g4_draw(Request $req): JsonResponse
@@ -756,8 +756,8 @@ public function g4_draw(Request $req): JsonResponse
         return $this->jsonOk(['error' => 'game_not_found'], 404);
     }
 
-    // ?? On enlève la restriction de phase pour que la pioche fonctionne
-    // Si plus tard tu as une vraie phase SETUP, on pourra remettre une règle du genre :
+    // ?? On enlÃ¨ve la restriction de phase pour que la pioche fonctionne
+    // Si plus tard tu as une vraie phase SETUP, on pourra remettre une rÃ¨gle du genre :
     // if ($game->getPhase() === Game4Game::PHASE_RUNNING && $ilYADesDuelsEnCours) { ... }
 
     $this->ensureDeck($game);
@@ -777,7 +777,7 @@ public function g4_draw(Request $req): JsonResponse
         return $this->jsonOk(['error' => 'deck_empty_or_quota_blocked'], 409);
     }
 
-    // ?? Important : écrire les changements (deck/hand) en base
+    // ?? Important : Ã©crire les changements (deck/hand) en base
     $this->em->flush();
 
     // Retour propre pour le front
@@ -1039,7 +1039,7 @@ public function g4_duel_submit(Request $req): JsonResponse
     $data = json_decode($req->getContent(), true) ?? [];
 
     $duelId    = (int)($data['duelId']    ?? 0);
-    $equipeId  = (int)($data['playerId']  ?? 0); // équipe du joueur appelant
+    $equipeId  = (int)($data['playerId']  ?? 0); // Ã©quipe du joueur appelant
     $cardToken = (string)($data['cardToken'] ?? '');
 
     /** @var Game4Duel|null $duel */
@@ -1071,9 +1071,9 @@ public function g4_duel_submit(Request $req): JsonResponse
         ], 404);
     }
 
-    // Duel déjà résolu ?
+    // Duel dÃ©jÃ  rÃ©solu ?
     if ($duel->getStatus() === Game4Duel::STATUS_RESOLVED) {
-        // On renvoie juste l’état courant du duel, pas de nouveau coup
+        // On renvoie juste lâ€™Ã©tat courant du duel, pas de nouveau coup
         $res = $this->duelService->resolve($duel, $this->em);
 
         // Relecture des plays pour affichage
@@ -1103,8 +1103,8 @@ public function g4_duel_submit(Request $req): JsonResponse
             'result'   => [
                 'winnerId'      => $res->winnerId,
                 'messageForYou' => $res->winnerId === null
-                    ? 'Égalité.'
-                    : ($isWinner ? 'Vous avez gagné !' : 'Vous avez perdu...'),
+                    ? 'Ã‰galitÃ©.'
+                    : ($isWinner ? 'Vous avez gagnÃ© !' : 'Vous avez perdu...'),
                 'logs'          => $res->logs,
                 'effects'       => $res->effects,
                 'wonCardCode'   => $res->wonCardCode ?? null,
@@ -1115,7 +1115,7 @@ public function g4_duel_submit(Request $req): JsonResponse
         ]);
     }
 
-    // Vérifier que ce joueur fait bien partie du duel
+    // VÃ©rifier que ce joueur fait bien partie du duel
     if ($duel->getPlayerA()?->getId() !== $player->getId()
         && $duel->getPlayerB()?->getId() !== $player->getId()
     ) {
@@ -1135,7 +1135,7 @@ public function g4_duel_submit(Request $req): JsonResponse
         ], 404);
     }
 
-    // Compter combien de cartes ce joueur a déjà jouées dans ce duel
+    // Compter combien de cartes ce joueur a dÃ©jÃ  jouÃ©es dans ce duel
     $myPlaysCount = $this->playRepo->count([
         'duel'   => $duel,
         'player' => $player,
@@ -1148,7 +1148,7 @@ public function g4_duel_submit(Request $req): JsonResponse
         ], 409);
     }
 
-    // Récupérer la carte en main via son token
+    // RÃ©cupÃ©rer la carte en main via son token
     /** @var Game4Card|null $card */
     $card = $this->cardRepo->findOneBy([
         'token' => $cardToken,
@@ -1173,7 +1173,7 @@ public function g4_duel_submit(Request $req): JsonResponse
         ], 404);
     }
 
-    // Création du play pour ce duel
+    // CrÃ©ation du play pour ce duel
     $play = new Game4DuelPlay();
     $play
         ->setDuel($duel)
@@ -1185,14 +1185,14 @@ public function g4_duel_submit(Request $req): JsonResponse
         ->setRoundIndex($myPlaysCount + 1)
         ->setSubmittedAt(new \DateTimeImmutable());
 
-    // La carte quitte la main ? défausse
+    // La carte quitte la main ? dÃ©fausse
     $card->setZone(Game4Card::ZONE_DISCARD);
 
     $this->em->persist($play);
     $this->em->persist($card);
     $this->em->flush();
 
-    // Appel au service de résolution du duel
+    // Appel au service de rÃ©solution du duel
     $res = $this->duelService->resolve($duel, $this->em);
 
     // Relecture de tous les plays pour construire la vue
@@ -1222,7 +1222,7 @@ public function g4_duel_submit(Request $req): JsonResponse
         }
     }
 
-    // Si le service a résolu le duel, on renvoie le résultat complet
+    // Si le service a rÃ©solu le duel, on renvoie le rÃ©sultat complet
     if ($duel->getStatus() === Game4Duel::STATUS_RESOLVED) {
         $isWinner = ($res->winnerId !== null && $res->winnerId === $player->getId());
 
@@ -1235,8 +1235,8 @@ public function g4_duel_submit(Request $req): JsonResponse
             'result'   => [
                 'winnerId'      => $res->winnerId,
                 'messageForYou' => $res->winnerId === null
-                    ? 'Égalité.'
-                    : ($isWinner ? 'Vous avez gagné !' : 'Vous avez perdu...'),
+                    ? 'Ã‰galitÃ©.'
+                    : ($isWinner ? 'Vous avez gagnÃ© !' : 'Vous avez perdu...'),
                 'logs'          => $res->logs,
                 'effects'       => $res->effects,
                 'wonCardCode'   => $res->wonCardCode ?? null,
@@ -1334,10 +1334,10 @@ public function g4_duel_status(Request $req): JsonResponse
         ];
     }, $allPlays);
 
-    // Appel au service de résolution : si déjà résolu, il renvoie juste les infos stockées
+    // Appel au service de rÃ©solution : si dÃ©jÃ  rÃ©solu, il renvoie juste les infos stockÃ©es
     $res = $this->duelService->resolve($duel, $this->em);
 
-    // Si le duel n'est pas encore résolu
+    // Si le duel n'est pas encore rÃ©solu
     if ($duel->getStatus() !== Game4Duel::STATUS_RESOLVED) {
         return $this->jsonOk([
             'success'  => true,
@@ -1350,7 +1350,7 @@ public function g4_duel_status(Request $req): JsonResponse
         ]);
     }
 
-    // Duel résolu : on renvoie le résultat
+    // Duel rÃ©solu : on renvoie le rÃ©sultat
     $isWinner = false;
     if ($me && isset($res->winnerId) && $res->winnerId !== null) {
         $isWinner = ($res->winnerId === $me->getId());
@@ -1359,8 +1359,8 @@ public function g4_duel_status(Request $req): JsonResponse
     $messageForYou = null;
     if ($me) {
         $messageForYou = $res->winnerId === null
-            ? 'Égalité.'
-            : ($isWinner ? 'Vous avez gagné !' : 'Vous avez perdu...');
+            ? 'Ã‰galitÃ©.'
+            : ($isWinner ? 'Vous avez gagnÃ© !' : 'Vous avez perdu...');
     }
 
     return $this->jsonOk([
@@ -1402,7 +1402,7 @@ private function buildG4State(Game4Game $game, ?Game4Player $me, ?string $server
             'lives'        => $p->getLives(),
             'isAlive'      => $p->isAlive(),
             'isTargetable' => $me ? $p->getId() !== $me->getId() : true,
-            // ? utilise la propriété persistée (et plus le role pour l’UI)
+            // ? utilise la propriÃ©tÃ© persistÃ©e (et plus le role pour lâ€™UI)
             'isZombie'     => $p->isZombie(),
         ];
     }
@@ -1431,7 +1431,7 @@ private function buildG4State(Game4Game $game, ?Game4Player $me, ?string $server
         }
     }
 
-    // Bannière duel entrant (dernier PENDING où me est playerB)
+    // BanniÃ¨re duel entrant (dernier PENDING oÃ¹ me est playerB)
     $incoming = null;
     if ($me) {
         $qb = $this->em->createQueryBuilder();
@@ -1447,7 +1447,7 @@ private function buildG4State(Game4Game $game, ?Game4Player $me, ?string $server
                 'duelId'       => $duel->getId(),
                 'opponentId'   => $duel->getPlayerA()->getId(),
                 'opponentTeam' => $duel->getPlayerA()->getEquipeId(),
-                'banner'       => sprintf("Vous avez été choisi par l’équipe %d", $duel->getPlayerA()->getEquipeId()),
+                'banner'       => sprintf("Vous avez Ã©tÃ© choisi par lâ€™Ã©quipe %d", $duel->getPlayerA()->getEquipeId()),
             ];
         }
     }
@@ -1482,9 +1482,9 @@ private function buildG4State(Game4Game $game, ?Game4Player $me, ?string $server
     // -------- ?preuve 4 : deck (NUM + sp?ciales) --------
     private function ensureDeck(Game4Game $game): void
     {
-       // 1) Définitions des cartes (NUM 1..10 + spéciales)
+       // 1) DÃ©finitions des cartes (NUM 1..10 + spÃ©ciales)
 $defs = [
-    // --- Numériques 1..10 ---
+    // --- NumÃ©riques 1..10 ---
     ['code' => 'NUM_1',  'label' => '1',  'text' => 'Valeur 1',  'type' => 'NUM'],
     ['code' => 'NUM_2',  'label' => '2',  'text' => 'Valeur 2',  'type' => 'NUM'],
     ['code' => 'NUM_3',  'label' => '3',  'text' => 'Valeur 3',  'type' => 'NUM'],
@@ -1496,10 +1496,10 @@ $defs = [
     ['code' => 'NUM_9',  'label' => '9',  'text' => 'Valeur 9',  'type' => 'NUM'],
     ['code' => 'NUM_10', 'label' => '10', 'text' => 'Valeur 10', 'type' => 'NUM'],
 
-    // --- Spéciales ---
+    // --- SpÃ©ciales ---
     ['code' => 'ZOMBIE',  'label' => 'Contagion', 'text' => 'Pouvoir du zombie', 'type' => 'ZOMBIE'],
-    ['code' => 'VACCINE', 'label' => 'Vaccin',     'text' => 'Protège un humain', 'type' => 'VACCINE'],
-    ['code' => 'SHOTGUN', 'label' => 'Fusil',      'text' => 'Attaque spéciale',  'type' => 'SHOTGUN'],
+    ['code' => 'VACCINE', 'label' => 'Vaccin',     'text' => 'ProtÃ¨ge un humain', 'type' => 'VACCINE'],
+    ['code' => 'SHOTGUN', 'label' => 'Fusil',      'text' => 'Attaque spÃ©ciale',  'type' => 'SHOTGUN'],
 ];
 
         foreach ($defs as $d) {
@@ -1559,7 +1559,7 @@ if (!$card) return null;
 $def = $card->getDef();
 $isSpecial = $this->isSpecialDef($def);
 
-// 1) compat rôle/carte
+// 1) compat rÃ´le/carte
 if (!$this->isDefAllowedForPlayer($def, $player)) {
     // remettre la carte dans le deck
     $card->setOwner(null)->setZone(Game4Card::ZONE_DECK);
@@ -1567,7 +1567,7 @@ if (!$this->isDefAllowedForPlayer($def, $player)) {
     continue;
 }
 
-// 2) quota spé
+// 2) quota spÃ©
 if ($isSpecial && $currentSpecials >= 2) {
     $card->setOwner(null)->setZone(Game4Card::ZONE_DECK);
     $this->em->persist($card);
@@ -1589,23 +1589,23 @@ if ($isSpecial && $currentSpecials >= 2) {
         return null;
     }
 
-    /** Compte les cartes spéciales dans la main d’un joueur */
+    /** Compte les cartes spÃ©ciales dans la main dâ€™un joueur */
 private function countSpecialsInHand(Game4Player $player): int
 {
     return $this->cardRepo->countSpecialsInHandByTypes($player, self::G4_SPECIAL_TYPES);
 }
 
-    /** Renvoie true si la def est spéciale (ZOMBIE/VACCINE/SHOTGUN) */
+    /** Renvoie true si la def est spÃ©ciale (ZOMBIE/VACCINE/SHOTGUN) */
 private function isSpecialDef(Game4CardDef $def): bool
 {
     return in_array(strtoupper($def->getType()), self::G4_SPECIAL_TYPES, true);
 }
-/** Nombre de cartes numériques dans la main */
+/** Nombre de cartes numÃ©riques dans la main */
 private function countNumericsInHand(Game4Player $player): int
 {
     return $this->cardRepo->countNumericsInHand($player);
 }
-/** Tente de piocher une carte précise (par code) depuis le deck */
+/** Tente de piocher une carte prÃ©cise (par code) depuis le deck */
 private function pickSpecificFromDeck(Game4Game $game, string $code): ?Game4Card
 {
     return $this->cardRepo->pickFromDeckByCode($game, $code); // voir patch repo plus bas
@@ -1619,14 +1619,14 @@ private function ensureShotgunForHuman(Game4Game $game, Game4Player $player): vo
     if ($hasShotgun) return;
 
     $shot = $this->pickSpecificFromDeck($game, 'SHOTGUN');
-    if (!$shot) return; // rien à faire si deck épuisé côté SHOTGUN
+    if (!$shot) return; // rien Ã  faire si deck Ã©puisÃ© cÃ´tÃ© SHOTGUN
 
     $shot->setOwner($player)->setZone(Game4Card::ZONE_HAND)
          ->setToken($this->makeToken($game->getId(), $player->getId(), 'SHOTGUN'));
     $game->incDrawCount();
     $this->em->persist($shot);
 
-    // Si on dépasse 7, on défausse une NUM (priorité : la plus basse)
+    // Si on dÃ©passe 7, on dÃ©fausse une NUM (prioritÃ© : la plus basse)
     $hand = $this->cardRepo->findHandByPlayer($player);
     if (count($hand) > self::G4_MAX_HAND) {
         $toDiscard = null; $lowest = PHP_INT_MAX;
@@ -1647,11 +1647,11 @@ private function ensureShotgunForHuman(Game4Game $game, Game4Player $player): vo
     }
 }
 
-/** Distribue 7 cartes avec =5 NUM ; laisse les VACCINE / ZOMBIE / SHOTGUN passer selon éligibilité.
+/** Distribue 7 cartes avec =5 NUM ; laisse les VACCINE / ZOMBIE / SHOTGUN passer selon Ã©ligibilitÃ©.
  *  Termine par une garantie SHOTGUN pour les HUMAINs. */
 private function dealInitialHand(Game4Game $game, Game4Player $player): void
 {
-    // Sécurité : vider la main existante si ré-entrée
+    // SÃ©curitÃ© : vider la main existante si rÃ©-entrÃ©e
     $handCount = $this->cardRepo->countByOwnerAndZone($player, Game4Card::ZONE_HAND);
     if ($handCount > 0) {
         foreach ($this->cardRepo->findHandByPlayer($player) as $c) {
@@ -1661,10 +1661,10 @@ private function dealInitialHand(Game4Game $game, Game4Player $player): void
     }
     
    
-// 1) D’abord piocher 5 NUM minimum — version sûre mémoire
+// 1) Dâ€™abord piocher 5 NUM minimum â€” version sÃ»re mÃ©moire
 $need = max(0, 5 - $this->countNumericsInHand($player));
 $tries = 0;                 // garde-fou
-$maxTries = 50;             // évite boucle folle si deck incompatible
+$maxTries = 50;             // Ã©vite boucle folle si deck incompatible
 
 while ($need > 0 && $tries < $maxTries) {
     $tries++;
@@ -1676,7 +1676,7 @@ while ($need > 0 && $tries < $maxTries) {
         break;
     }
 
-    // Assigne sans persist (entité déjà managed par Doctrine)
+    // Assigne sans persist (entitÃ© dÃ©jÃ  managed par Doctrine)
     $card->setOwner($player)
          ->setZone(Game4Card::ZONE_HAND)
          ->setToken($this->makeToken($game->getId(), $player->getId(), $card->getDef()->getCode()));
@@ -1684,15 +1684,15 @@ while ($need > 0 && $tries < $maxTries) {
     $game->incDrawCount();
     $need--;
 
-    // flush léger pour éviter d'accumuler des objets en UoW
+    // flush lÃ©ger pour Ã©viter d'accumuler des objets en UoW
     $this->em->flush();
 
-    // (optionnel) si tu manipules beaucoup d’entités ailleurs :
-    // $this->em->clear(Game4Card::class); // nécessite Doctrine >= 2.7
+    // (optionnel) si tu manipules beaucoup dâ€™entitÃ©s ailleurs :
+    // $this->em->clear(Game4Card::class); // nÃ©cessite Doctrine >= 2.7
 }
 
-// 2) Compléter jusqu’à 7 avec drawOne() (respecte quota spé & éligibilité)
-//    -> on évite les requêtes en boucle et on sort si drawOne() renvoie null
+// 2) ComplÃ©ter jusquâ€™Ã  7 avec drawOne() (respecte quota spÃ© & Ã©ligibilitÃ©)
+//    -> on Ã©vite les requÃªtes en boucle et on sort si drawOne() renvoie null
 $handCount     = $this->cardRepo->countByOwnerAndZone($player, Game4Card::ZONE_HAND);
 $deckRemaining = $this->cardRepo->countInZone($game, Game4Card::ZONE_DECK);
 $attempts      = 0;
@@ -1703,13 +1703,13 @@ while ($handCount < self::G4_MAX_HAND && $deckRemaining > 0 && $attempts < $atte
     $attempts++;
 
     if (!$card) {
-        // Aucune carte admissible (quotas/eligibilité bloquants) -> on arrête proprement
+        // Aucune carte admissible (quotas/eligibilitÃ© bloquants) -> on arrÃªte proprement
         break;
     }
 
-    // Succès : on a réellement ajouté une carte en main
+    // SuccÃ¨s : on a rÃ©ellement ajoutÃ© une carte en main
     $handCount++;
-    $deckRemaining--; // la carte a quitté le deck
+    $deckRemaining--; // la carte a quittÃ© le deck
 }
 
 
@@ -1795,7 +1795,7 @@ while ($handCount < self::G4_MAX_HAND && $deckRemaining > 0 && $attempts < $atte
     $def = $card->getDef();
     $code = $def->getCode();
 
-    // valeur numérique éventuelle (NUM_1..NUM_5), sinon null
+    // valeur numÃ©rique Ã©ventuelle (NUM_1..NUM_5), sinon null
     $value = null;
     if (preg_match('/^NUM_(\d+)$/', (string)$code, $m)) {
         $value = (int)$m[1];
@@ -1804,14 +1804,14 @@ while ($handCount < self::G4_MAX_HAND && $deckRemaining > 0 && $attempts < $atte
     return [
         'cardId' => $code,                                     // ex: NUM_3, ZOMBIE...
         'token'  => $card->getToken(),                         // jeton unique (pour jouer)
-        'label'  => $this->toUtf8($def->getLabel(), true),     // libellé lisible
+        'label'  => $this->toUtf8($def->getLabel(), true),     // libellÃ© lisible
         'text'   => $this->toUtf8($def->getText(),  true),     // description
         'type'   => $def->getType(),                           // NUM | ZOMBIE | VACCINE | SHOTGUN
         'value'  => $value,                                    // entier pour NUM_*, sinon null
         'isSpecial' => in_array($def->getType(), self::G4_SPECIAL_TYPES, true),
     ];
 }
-// ?? Signature alignée avec ton appel: ($game, $player)
+// ?? Signature alignÃ©e avec ton appel: ($game, $player)
 private function giveMandatorySpecialOnFirstJoin(Game4Game $game, Game4Player $player): void
 {
     $role = strtoupper((string)$player->getRole());
@@ -1823,7 +1823,7 @@ private function giveMandatorySpecialOnFirstJoin(Game4Game $game, Game4Player $p
         $this->giveSpecificFromDeckOrForge($game, $player, 'ZOMBIE');
         return;
     }
-    // autres rôles : rien au join
+    // autres rÃ´les : rien au join
 }
 
 

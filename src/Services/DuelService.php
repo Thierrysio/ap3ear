@@ -137,7 +137,7 @@ final class DuelService
                     if ($stolen) {
                         $def = $stolen->getDef();
                         $logs[] = sprintf(
-                            '%s (humain) cède sa meilleure carte (%s) à %s.',
+                            "%s (humain) cède sa meilleure carte (%s) à %s.",
                             $opponent->getName(),
                             $def?->getLabel() ?? $def?->getCode() ?? 'carte',
                             $actor->getName()
@@ -191,7 +191,7 @@ final class DuelService
                     $logs[]    = sprintf('%s infecte %s qui devient zombie.', $actor->getName(), $opponent->getName());
                     $effects[] = ['type' => 'role', 'playerId' => $opponent->getId(), 'role' => Game4Player::ROLE_ZOMBIE];
                 } else {
-                    $logs[] = 'ZOMBIE joué mais les conditions dinfection ne sont pas réunies.';
+                    $logs[] = "ZOMBIE joué mais les conditions d'infection ne sont pas réunies.";
                 }
                 break;
 
@@ -266,7 +266,7 @@ final class DuelService
             $result->wonCardCode  = $def?->getCode();
             $result->wonCardLabel = $def?->getLabel();
         } else {
-            $logs[] = sprintf('%s n’avait aucune carte numérique à céder.', $loser->getName());
+            $logs[] = sprintf('%s n'avait aucune carte numérique à céder.', $loser->getName());
         }
 
         $result->logs    = $logs;
@@ -421,6 +421,8 @@ final class DuelService
 
     private function finalizeDuel(Game4Duel $duel, ?Game4Player $winner, array $logs): void
     {
+        $logs = $this->sanitizeLogs($logs);
+
         if (method_exists($duel, 'markResolved')) {
             $duel->markResolved($winner, $logs);
         } else {
@@ -446,5 +448,28 @@ final class DuelService
                 $participant->setIncomingDuel(null);
             }
         }
+    }
+
+    /**
+     * Normalise les lignes de journal vers UTF-8 pour éviter les caractères invalides.
+     *
+     * @param array<int, string> $logs
+     *
+     * @return array<int, string>
+     */
+    private function sanitizeLogs(array $logs): array
+    {
+        return array_values(array_map(fn ($line) => $this->normalizeLogLine((string) $line), $logs));
+    }
+
+    private function normalizeLogLine(string $line): string
+    {
+        $converted = @mb_convert_encoding($line, 'UTF-8', 'UTF-8,ISO-8859-1,Windows-1252');
+
+        if ($converted === false) {
+            $converted = @iconv('UTF-8', 'UTF-8//IGNORE', $line) ?: '';
+        }
+
+        return $converted;
     }
 }
