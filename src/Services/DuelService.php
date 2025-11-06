@@ -210,11 +210,11 @@ final class DuelService
         return true;
     }
 
-    private function applyNumericResolution(
+private function applyNumericResolution(
         Game4Duel $duel,
         array $plays,
         EntityManagerInterface $em,
-        stdClass $result
+        \stdClass $result
     ): bool {
         $playerA = $duel->getPlayerA();
         $playerB = $duel->getPlayerB();
@@ -223,60 +223,166 @@ final class DuelService
             return false;
         }
 
+        // ?? Nombre de cartes numériques jouées par chaque joueur
+        $countA = 0;
+        $countB = 0;
+
+        foreach ($plays as $play) {
+            if (!$play instanceof Game4DuelPlay) {
+                continue;
+            }
+            if ($play->getCardType() !== Game4DuelPlay::TYPE_NUM) {
+                continue;
+            }
+
+            $pid = $play->getPlayer()?->getId();
+            if ($pid === $playerA->getId()) {
+                $countA++;
+            } elseif ($pid === $playerB->getId()) {
+                $countB++;
+            }
+        }
+
+        // On veut un duel NUM qui se joue sur 4 cartes chacun
+        $requiredCards = 4;
+
+        // ? Tant que les deux joueurs n’ont pas joué leurs 4 cartes NUM, on NE résout PAS
+        if ($countA < $requiredCards || $countB < $requiredCards) {
+            $result->logs[] = sprintf(
+                "Duel numérique en cours : %s a joué %d carte(s), %s a joué %d carte(s).",
+                $playerA->getName(),
+                $countA,
+                $playerB->getName(),
+                $countB
+            );
+            // Pas de finalisation, pas de gagnant
+            $result->winnerId     = null;
+            $result->pointsDelta  = 0;
+            $result->wonCardCode  = null;
+            $result->wonCardLabel = null;
+            $result->effects      = [];
+
+            return false; // ? Très important : on NE finalise pas le duel
+        }
+
+        // ? À partir d'ici : les 2 joueurs ont joué toutes leurs cartes NUM ? on peut résoudre
+
         $logs    = [];
         $effects = [];
 
+        // Totaux numériques
         $sumA = $this->sumNumericForPlayer($plays, $playerA);
         $sumB = $this->sumNumericForPlayer($plays, $playerB);
 
-        $logs[] = sprintf('%s totalise %d points, %s totalise %d points.', $playerA->getName(), $sumA, $playerB->getName(), $sumB);
+        $logs[] = sprintf(
+            "%s totalise %d point(s) avec ses cartes numériques.",
+            $playerA->getName(),
+            $sumA
+        );
+        $logs[] = sprintf(
+            "%s totalise %d point(s) avec ses cartes numériques.",
+            $playerB->getName(),
+            $sumB
+        );
+
+        $winner = null;
+        $loser  = null;
+        $stolen = null;
 
         if ($sumA === $sumB) {
-            $logs[] = "Égalité parfaite : aucune carte n'est transférée.";
+            // ?? Égalité
+            $logs[] = "Égalité parfaite sur le total des cartes numériques : le duel est nul.";
+            $result->winnerId     = null;
+            $result->pointsDelta  = 0;
+            $result->wonCardCode  = null;
+            $result->wonCardLabel = null;
+
+            // ?? RÈGLE DEMANDÉE :
+            // Les cartes jouées (NUM) sont rendues à leurs propriétaires
+            $this->returnPlayedCardsToHands($plays, null);
+
+            // On finalise quand même le duel (il est terminé, mais personne ne gagne)
+            $this->finalizeDuel($duel, null, $logs);
+
             $result->logs    = $logs;
             $result->effects = $effects;
-
-            $this->discardPlays($plays, null);
-            $this->finalizeDuel($duel, null, $logs);
 
             return true;
         }
 
-        $winner = $sumA > $sumB ? $playerA : $playerB;
-        $loser  = $winner === $playerA ? $playerB : $playerA;
+        // ?? Il y a un gagnant
+        if ($sumA > $sumB) {
+            $winner = $playerA;
+            $loser  = $playerB;
+        } else {
+            $winner = $playerB;
+            $loser  = $playerA;
+        }
 
-        $result->winnerId = $winner->getId();
-        $logs[] = sprintf('%s remporte le duel.', $winner->getName());
+        $logs[] = sprintf(
+            "%s remporte le duel numérique contre %s.",
+            $winner->getName(),
+            $loser->getName()
+        );
+        $result->winnerId    = $winner->getId();
+        $result->pointsDelta = abs($sumA - $sumB);
 
-        $stolen = $this->stealHighestPostedNumeric($duel, $winner, $loser);
-        if ($stolen) {
-            $def = $stolen->getDef();
+        // ?? Le gagnant vole la meilleure carte numérique jouée par le perdant
+        $stolen = $this->findBestNumericCardForPlayer($plays, $loser);
+
+        if ($stolen instanceof Game4Card) {
+            // Transfert de propriété de la carte vers le gagnant
+            $stolen->setOwner($winner);
+            $stolen->setZone(Game4Card::ZONE_HAND);
+
+            $def   = $stolen->getDef();
+            $code  = null;
+            $label = null;
+
+            if ($def instanceof Game4CardDef) {
+                $code  = $def->getCode();
+                $label = $def->getLabel() ?? $code;
+            }
+
             $logs[] = sprintf(
-                '%s récupère la meilleure carte de %s (%s).',
+                "%s récupère la meilleure carte numérique de %s (%s).",
                 $winner->getName(),
                 $loser->getName(),
-                $def?->getLabel() ?? $def?->getCode() ?? 'carte'
+                $label ?? 'carte'
             );
+
             $effects[] = [
                 'type'     => 'card_transfer',
                 'from'     => $loser->getId(),
                 'to'       => $winner->getId(),
-                'cardCode' => $def?->getCode(),
+                'cardCode' => $code,
             ];
-            $result->wonCardCode  = $def?->getCode();
-            $result->wonCardLabel = $def?->getLabel();
+
+            $result->wonCardCode  = $code;
+            $result->wonCardLabel = $label;
         } else {
-            $logs[] = sprintf('%s n'avait aucune carte numérique à céder.', $loser->getName());
+            $logs[] = sprintf(
+                "%s n’avait aucune carte numérique à céder.",
+                $loser->getName()
+            );
+            $result->wonCardCode  = null;
+            $result->wonCardLabel = null;
         }
+
+        // ?? RÈGLE DEMANDÉE :
+        // Toutes les cartes jouées qui ne sont pas "perdues" (ici : la carte volée) reviennent en main
+        $this->returnPlayedCardsToHands($plays, $stolen);
+
+        // ? On marque le duel comme résolu
+        $this->finalizeDuel($duel, $winner, $logs);
 
         $result->logs    = $logs;
         $result->effects = $effects;
 
-        $this->discardPlays($plays, $stolen);
-        $this->finalizeDuel($duel, $winner, $logs);
-
         return true;
     }
+
+
 
     private function sumNumericForPlayer(array $plays, Game4Player $player): int
     {
@@ -293,6 +399,40 @@ final class DuelService
 
         return $sum;
     }
+    
+    /**
+ * Retourne la meilleure carte NUM jouée par un joueur pendant ce duel.
+ */
+private function findBestNumericCardForPlayer(array $plays, Game4Player $player): ?Game4Card
+{
+    $bestPlay = null;
+    $bestVal  = null;
+
+    foreach ($plays as $play) {
+        if (!$play instanceof Game4DuelPlay) {
+            continue;
+        }
+        if ($play->getPlayer()?->getId() !== $player->getId()) {
+            continue;
+        }
+        if ($play->getCardType() !== Game4DuelPlay::TYPE_NUM) {
+            continue;
+        }
+
+        $val = $this->valueFromPlay($play);
+        if ($bestPlay === null || $val > $bestVal) {
+            $bestPlay = $play;
+            $bestVal  = $val;
+        }
+    }
+
+    if ($bestPlay instanceof Game4DuelPlay) {
+        return $bestPlay->getCard();
+    }
+
+    return null;
+}
+
 
     private function valueFromPlay(Game4DuelPlay $play): int
     {

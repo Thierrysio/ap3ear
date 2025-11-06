@@ -1039,7 +1039,7 @@ public function g4_duel_submit(Request $req): JsonResponse
     $data = json_decode($req->getContent(), true) ?? [];
 
     $duelId    = (int)($data['duelId']    ?? 0);
-    $equipeId  = (int)($data['playerId']  ?? 0); // équipe du joueur appelant
+    $equipeId  = (int)($data['equipeId']  ?? 0); // équipe du joueur appelant
     $cardToken = (string)($data['cardToken'] ?? '');
 
     /** @var Game4Duel|null $duel */

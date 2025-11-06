@@ -32,7 +32,7 @@ class Game4PlayerRepository extends ServiceEntityRepository
     {
         return $this->createQueryBuilder('p')
             ->andWhere('p.game = :g')
-            ->andWhere('p.id = :e')
+            ->andWhere('p.equipeId = :e')
             ->setParameter('g', $game)
             ->setParameter('e', $equipeId)
             ->getQuery()
