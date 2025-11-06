@@ -1036,111 +1036,172 @@ public function g4_duel_start(Request $req): JsonResponse
 #[Route('/api/mobile/duelSubmit', name: 'g4_duel_submit', methods: ['POST'])]
 public function g4_duel_submit(Request $req): JsonResponse
 {
-    $data     = json_decode($req->getContent(), true) ?? [];
-    $duelId   = (int)($data['duelId']   ?? 0);
-    $playerId = (int)($data['playerId'] ?? 0);
-    $token    = (string)($data['cardToken'] ?? '');
+    $data = json_decode($req->getContent(), true) ?? [];
+
+    $duelId    = (int)($data['gameId']    ?? 0);
+    $equipeId  = (int)($data['equipeId']  ?? 0); // équipe du joueur appelant
+    $cardToken = (string)($data['cardToken'] ?? '');
 
     /** @var Game4Duel|null $duel */
     $duel = $this->em->find(Game4Duel::class, $duelId);
     if (!$duel) {
-        return $this->jsonOk(['success' => false, 'message' => 'duel_not_found'], 404);
-    }
-
-    /** @var Game4Player|null $player */
-    $player = $this->em->find(Game4Player::class, $playerId);
-    if (
-        !$player
-        || $player->getGame()->getId() !== $duel->getGame()->getId()
-        || !$duel->involves($player)
-    ) {
-        return $this->jsonOk(['success' => false, 'message' => 'player_not_in_duel_game'], 403);
-    }
-    if ($player->isEliminated()) {
-        return $this->jsonOk(['success' => false, 'message' => 'player_eliminated'], 409);
-    }
-
-    $opponent = $duel->getOpponentFor($player);
-    if (!$opponent) {
-        return $this->jsonOk(['success' => false, 'message' => 'opponent_not_found'], 404);
-    }
-
-    // Vérifie la carte en main (par token)
-    /** @var Game4Card|null $card */
-    $card = $this->cardRepo->findOneBy([
-        'token' => $token,
-        'owner' => $player,
-        'zone'  => Game4Card::ZONE_HAND,
-    ]);
-    if (!$card) {
-        return $this->jsonOk(['success' => false, 'message' => 'card_not_found_in_hand'], 404);
-    }
-    if ($card->getGame()->getId() !== $duel->getGame()->getId()) {
-        return $this->jsonOk(['success' => false, 'message' => 'card_game_mismatch'], 403);
-    }
-
-    // ===== Comptes actuels AVANT cette carte (pour limiter à 4 cartes par joueur) =====
-    $allPlays = $this->playRepo->findAllByDuel($duel);
-    $myCount  = 0;
-    foreach ($allPlays as $p) {
-        if ($p->getPlayer()->getId() === $player->getId()) {
-            $myCount++;
-        }
-    }
-
-    if ($myCount >= 4) {
         return $this->jsonOk([
-            'success' => false,
-            'message' => 'max_rounds_reached_for_player',
+            'success'  => false,
+            'message'  => 'duel_not_found',
+            'resolved' => true,
+        ], 404);
+    }
+
+    $game = $duel->getGame();
+    if (!$game) {
+        return $this->jsonOk([
+            'success'  => false,
+            'message'  => 'game_not_found_for_duel',
+            'resolved' => true,
+        ], 404);
+    }
+
+    // Joueur courant (celui qui soumet la carte)
+    $player = $this->playerRepo->findOneByGameAndEquipe($game, $equipeId);
+    if (!$player) {
+        return $this->jsonOk([
+            'success'  => false,
+            'message'  => 'player_not_in_game',
+            'resolved' => true,
+        ], 404);
+    }
+
+    // Duel déjà résolu ?
+    if ($duel->getStatus() === Game4Duel::STATUS_RESOLVED) {
+        // On renvoie juste l’état courant du duel, pas de nouveau coup
+        $res = $this->duelService->resolve($duel, $this->em);
+
+        // Relecture des plays pour affichage
+        $allPlays = $this->playRepo->findBy(
+            ['duel' => $duel],
+            ['roundIndex' => 'ASC', 'submittedAt' => 'ASC']
+        );
+
+        $playsView = array_map(function (Game4DuelPlay $p) {
+            return [
+                'playerId' => $p->getPlayer()->getId(),
+                'cardCode' => $p->getCardCode(),
+                'cardType' => $p->getCardType(),
+                'numValue' => $p->getCardType() === Game4DuelPlay::TYPE_NUM ? $p->getNumValue() : null,
+                'round'    => $p->getRoundIndex(),
+            ];
+        }, $allPlays);
+
+        $isWinner = ($res->winnerId !== null && $res->winnerId === $player->getId());
+
+        return $this->jsonOk([
+            'success'  => true,
+            'duelId'   => $duel->getId(),
+            'status'   => 'RESOLVED',
+            'resolved' => true,
+            'message'  => 'card_confirmed',
+            'result'   => [
+                'winnerId'      => $res->winnerId,
+                'messageForYou' => $res->winnerId === null
+                    ? 'Égalité.'
+                    : ($isWinner ? 'Vous avez gagné !' : 'Vous avez perdu...'),
+                'logs'          => $res->logs,
+                'effects'       => $res->effects,
+                'wonCardCode'   => $res->wonCardCode ?? null,
+                'wonCardLabel'  => $res->wonCardLabel ?? null,
+            ],
+            'plays'    => $playsView,
+            'state'    => $this->buildG4State($duel->getGame(), $player),
+        ]);
+    }
+
+    // Vérifier que ce joueur fait bien partie du duel
+    if ($duel->getPlayerA()?->getId() !== $player->getId()
+        && $duel->getPlayerB()?->getId() !== $player->getId()
+    ) {
+        return $this->jsonOk([
+            'success'  => false,
+            'message'  => 'player_not_in_duel',
+            'resolved' => false,
+        ], 403);
+    }
+
+    $opponent = $duel->getOpponentOf($player);
+    if (!$opponent) {
+        return $this->jsonOk([
+            'success'  => false,
+            'message'  => 'opponent_not_found',
+            'resolved' => false,
+        ], 404);
+    }
+
+    // Compter combien de cartes ce joueur a déjà jouées dans ce duel
+    $myPlaysCount = $this->playRepo->count([
+        'duel'   => $duel,
+        'player' => $player,
+    ]);
+    if ($myPlaysCount >= 4) {
+        return $this->jsonOk([
+            'success'  => false,
+            'message'  => 'max_rounds_reached_for_player',
+            'resolved' => false,
         ], 409);
     }
 
-    $roundIndex = $myCount + 1; // 1..4 pour CE joueur
+    // Récupérer la carte en main via son token
+    /** @var Game4Card|null $card */
+    $card = $this->cardRepo->findOneBy([
+        'token' => $cardToken,
+        'owner' => $player,
+        'zone'  => Game4Card::ZONE_HAND,
+    ]);
 
-    // ===== Crée le play =====
-    $def  = $card->getDef();
-    $code = (string)$def->getCode();
-    $type = strtoupper((string)$def->getType());
-
-    $numValue = null;
-    $isSpecial = in_array($type, ['ZOMBIE','SHOTGUN','VACCINE'], true);
-
-    if (!$isSpecial && preg_match('/^NUM_(\d+)$/', $code, $m)) {
-        $numValue = (int)$m[1];
-        $type     = Game4DuelPlay::TYPE_NUM;
-    } elseif ($isSpecial) {
-        if ($type === 'ZOMBIE')  $type = Game4DuelPlay::TYPE_ZOMBIE;
-        if ($type === 'SHOTGUN') $type = Game4DuelPlay::TYPE_SHOTGUN;
-        if ($type === 'VACCINE') $type = Game4DuelPlay::TYPE_VACCINE;
-    } else {
-        $type = Game4DuelPlay::TYPE_NUM;
+    if (!$card) {
+        return $this->jsonOk([
+            'success'  => false,
+            'message'  => 'card_not_found_in_hand',
+            'resolved' => false,
+        ], 404);
     }
 
-    $play = (new Game4DuelPlay())
+    $def = $card->getDef();
+    if (!$def) {
+        return $this->jsonOk([
+            'success'  => false,
+            'message'  => 'card_def_not_found',
+            'resolved' => false,
+        ], 404);
+    }
+
+    // Création du play pour ce duel
+    $play = new Game4DuelPlay();
+    $play
         ->setDuel($duel)
         ->setPlayer($player)
         ->setCard($card)
-        ->setCardCode($code)
-        ->setCardType($type)
-        ->setNumValue($numValue)
-        ->setRoundIndex($roundIndex)
+        ->setCardCode($def->getCode())
+        ->setCardType($def->getType())
+        ->setNumValue($def->getNumValue())
+        ->setRoundIndex($myPlaysCount + 1)
         ->setSubmittedAt(new \DateTimeImmutable());
 
-    $this->em->persist($play);
-
     // La carte quitte la main ? défausse
-    $card->setOwner(null)->setZone(Game4Card::ZONE_DISCARD);
-    $duel->getGame()->incDiscardCount();
-    $this->em->persist($card);
+    $card->setZone(Game4Card::ZONE_DISCARD);
 
+    $this->em->persist($play);
+    $this->em->persist($card);
     $this->em->flush();
 
-    // ===== APPEL SYSTÉMATIQUE AU SERVICE : c'est lui qui décide si le duel est prêt =====
+    // Appel au service de résolution du duel
     $res = $this->duelService->resolve($duel, $this->em);
 
-    // On reconstruit la vue des plays
-    $allPlays = $this->playRepo->findAllByDuel($duel);
-    $playsView = array_map(static function (Game4DuelPlay $p) {
+    // Relecture de tous les plays pour construire la vue
+    $allPlays = $this->playRepo->findBy(
+        ['duel' => $duel],
+        ['roundIndex' => 'ASC', 'submittedAt' => 'ASC']
+    );
+
+    $playsView = array_map(function (Game4DuelPlay $p) {
         return [
             'playerId' => $p->getPlayer()->getId(),
             'cardCode' => $p->getCardCode(),
@@ -1150,7 +1211,7 @@ public function g4_duel_submit(Request $req): JsonResponse
         ];
     }, $allPlays);
 
-    // Recompte pour info
+    // Recompte des coups pour info
     $myCount  = 0;
     $oppCount = 0;
     foreach ($allPlays as $p) {
@@ -1161,47 +1222,50 @@ public function g4_duel_submit(Request $req): JsonResponse
         }
     }
 
+    // Si le service a résolu le duel, on renvoie le résultat complet
     if ($duel->getStatus() === Game4Duel::STATUS_RESOLVED) {
-    $isWinner = ($res->winnerId !== null && $res->winnerId === $player->getId());
+        $isWinner = ($res->winnerId !== null && $res->winnerId === $player->getId());
 
+        return $this->jsonOk([
+            'success'  => true,
+            'duelId'   => $duel->getId(),
+            'status'   => 'RESOLVED',
+            'resolved' => true,
+            'message'  => 'card_confirmed',
+            'result'   => [
+                'winnerId'      => $res->winnerId,
+                'messageForYou' => $res->winnerId === null
+                    ? 'Égalité.'
+                    : ($isWinner ? 'Vous avez gagné !' : 'Vous avez perdu...'),
+                'logs'          => $res->logs,
+                'effects'       => $res->effects,
+                'wonCardCode'   => $res->wonCardCode ?? null,
+                'wonCardLabel'  => $res->wonCardLabel ?? null,
+            ],
+            'plays'    => $playsView,
+            'state'    => $this->buildG4State($duel->getGame(), $player),
+        ]);
+    }
+
+    // Sinon : duel encore en attente
     return $this->jsonOk([
-        'success'  => true,
-        'duelId'   => $duel->getId(),
-        'status'   => 'RESOLVED',
-        'resolved' => true,
-        'result'   => [
-            'winnerId'      => $res->winnerId,
-            'messageForYou' => $res->winnerId === null
-                ? 'Égalité.'
-                : ($isWinner ? '?? Vous avez gagné !' : '?? Vous avez perdu...'),
-            'logs'          => $res->logs,
-            'effects'       => $res->effects,
-            'wonCardCode'   => $res->wonCardCode ?? null,
-            'wonCardLabel'  => $res->wonCardLabel ?? null,
-        ],
-        'plays'    => $playsView,
-        'state'    => $this->buildG4State($duel->getGame(), $player),
+        'success'            => true,
+        'duelId'             => $duel->getId(),
+        'status'             => 'PENDING',
+        'resolved'           => false,
+        'message'            => 'card_confirmed',
+        'youHaveSubmitted'   => true,
+        'myPlaysCount'       => $myCount,
+        'opponentPlaysCount' => $oppCount,
+        'canPlayMore'        => $myCount < 4,
+        'plays'              => $playsView,
+        'state'              => $this->buildG4State($duel->getGame(), $player),
     ]);
 }
 
 
-    // Sinon : duel encore en attente (le service a décidé "pas prêt")
-   return $this->jsonOk([
-    'success'           => true,
-    'duelId'            => $duel->getId(),
-    'status'            => 'PENDING',
-    'resolved'          => false,
-    'youHaveSubmitted'  => true,
-    'myPlaysCount'      => $myCount,
-    'opponentPlaysCount'=> $oppCount,
-    'canPlayMore'       => $myCount < 4,
-    'plays'             => $playsView,
-    'state'             => $this->buildG4State($duel->getGame(), $player),
-]);
-}
-
-
 // DUEL STATUS - VERSION CORRIG?E (UTF-8 safe)
+// DUEL STATUS - VERSION UTF-8 SAFE
 #[Route('/api/mobile/duelStatus', name: 'g4_duel_status', methods: ['GET'])]
 public function g4_duel_status(Request $req): JsonResponse
 {
@@ -1212,73 +1276,98 @@ public function g4_duel_status(Request $req): JsonResponse
     $duel = $this->em->find(Game4Duel::class, $duelId);
     if (!$duel) {
         return $this->jsonOk([
+            'success'  => false,
+            'duelId'   => $duelId,
+            'status'   => 'UNKNOWN',
             'resolved' => true,
-            'log'      => ['duel_not_found'],
+            'logs'     => ['duel_not_found'],
             'plays'    => [],
             'state'    => null,
-        ]);
+        ], 404);
     }
 
-    /** @var Game4Player|null $player */
-    $player = $this->playerRepo->findOneByGameAndEquipe($duel->getGame(), $equipeId);
-    if (!$player) {
+    $game = $duel->getGame();
+    if (!$game) {
         return $this->jsonOk([
+            'success'  => false,
+            'duelId'   => $duel->getId(),
+            'status'   => 'ERROR',
             'resolved' => true,
-            'log'      => ['player_not_in_game'],
+            'logs'     => ['game_not_found_for_duel'],
             'plays'    => [],
             'state'    => null,
-        ], 403);
+        ], 500);
     }
 
-    // Vue minimale des plays (si le front en a besoin)
-    $plays = $this->playRepo->findAllByDuel($duel);
+    // Joueur "moi" (optionnel pour personnaliser le message)
+    $me = null;
+    if ($equipeId > 0) {
+        $me = $this->playerRepo->findOneByGameAndEquipe($game, $equipeId);
+    }
+
+    // Relecture des coups
+    $allPlays = $this->playRepo->findBy(
+        ['duel' => $duel],
+        ['roundIndex' => 'ASC', 'submittedAt' => 'ASC']
+    );
+
     $playsView = array_map(function (Game4DuelPlay $p) {
         return [
             'playerId' => $p->getPlayer()->getId(),
             'cardCode' => $p->getCardCode(),
             'cardType' => $p->getCardType(),
-            'numValue' => $p->getCardType()==='NUM' ? (int)$p->getNumValue() : null,
+            'numValue' => $p->getCardType() === Game4DuelPlay::TYPE_NUM ? $p->getNumValue() : null,
+            'round'    => $p->getRoundIndex(),
         ];
-    }, $plays);
+    }, $allPlays);
 
-    // État global pour CE joueur
-    $gameState = $this->buildG4State($duel->getGame(), $player);
+    // Appel au service de résolution : si déjà résolu, il renvoie juste les infos stockées
+    $res = $this->duelService->resolve($duel, $this->em);
 
+    // Si le duel n'est pas encore résolu
     if ($duel->getStatus() !== Game4Duel::STATUS_RESOLVED) {
-    $myPlay = $this->playRepo->findOneBy(['duel' => $duel, 'player' => $player]);
+        return $this->jsonOk([
+            'success'  => true,
+            'duelId'   => $duel->getId(),
+            'status'   => 'PENDING',
+            'resolved' => false,
+            'logs'     => $res->logs ?? [],
+            'plays'    => $playsView,
+            'state'    => $this->buildG4State($game, $me),
+        ]);
+    }
+
+    // Duel résolu : on renvoie le résultat
+    $isWinner = false;
+    if ($me && isset($res->winnerId) && $res->winnerId !== null) {
+        $isWinner = ($res->winnerId === $me->getId());
+    }
+
+    $messageForYou = null;
+    if ($me) {
+        $messageForYou = $res->winnerId === null
+            ? 'Égalité.'
+            : ($isWinner ? 'Vous avez gagné !' : 'Vous avez perdu...');
+    }
+
     return $this->jsonOk([
-        'duelId'           => $duel->getId(),
-        'status'           => 'PENDING',
-        'resolved'         => false,
-        'youHaveSubmitted' => (bool) $myPlay,
-        'plays'            => $playsView,
-        'state'            => $gameState,
+        'success'  => true,
+        'duelId'   => $duel->getId(),
+        'status'   => 'RESOLVED',
+        'resolved' => true,
+        'result'   => [
+            'winnerId'      => $res->winnerId,
+            'messageForYou' => $messageForYou,
+            'logs'          => $res->logs ?? [],
+            'effects'       => $res->effects ?? [],
+            'wonCardCode'   => $res->wonCardCode ?? null,
+            'wonCardLabel'  => $res->wonCardLabel ?? null,
+        ],
+        'plays'    => $playsView,
+        'state'    => $this->buildG4State($game, $me),
     ]);
 }
 
-
-    // Duel déjà résolu : on N'APPELLE PAS resolve() ici.
-    $winner      = $duel->getWinner();
-    $winnerId    = $winner?->getId();
-    $messageYou  = ($winnerId === null)
-        ? 'Égalité.'
-        : (($winnerId === $player->getId()) ? '? Vous avez gagné !' : '? Vous avez perdu...');
-    $logs        = $duel->getLogsArray(); // remplis lors de la résolution
-
-    return $this->jsonOk([
-    'duelId'   => $duel->getId(),
-    'status'   => 'RESOLVED',
-    'resolved' => true,
-    'result'   => [
-        'winnerId'      => $winnerId,
-        'messageForYou' => $messageYou,
-        'logs'          => $logs,
-    ],
-    'plays' => $playsView,
-    'state' => $gameState,
-]);
-
-}
 
 
     // =====================================================================
