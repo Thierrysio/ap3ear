@@ -573,7 +573,7 @@ final class ApiController extends AbstractController
         $equipeId = (int) $req->query->get('equipeId', 0);
 
         $game = $this->em->find(Game4Game::class, $gameId);
-        if (!$game) return $this->jsonOk(['error' => 'game_not_found'], 404);
+        if (!$game) return $this->jsonOk(['error' => 'game_not_found'], Response::HTTP_NOT_FOUND);
 
         $me = $equipeId > 0 ? $this->playerRepo->findOneByGameAndEquipe($game, $equipeId) : null;
 
@@ -753,7 +753,7 @@ public function g4_draw(Request $req): JsonResponse
     /** @var Game4Game|null $game */
     $game = $this->em->find(Game4Game::class, $gameId);
     if (!$game) {
-        return $this->jsonOk(['error' => 'game_not_found'], 404);
+        return $this->jsonOk(['error' => 'game_not_found'], Response::HTTP_NOT_FOUND);
     }
 
     // ?? On enlève la restriction de phase pour que la pioche fonctionne
@@ -765,16 +765,16 @@ public function g4_draw(Request $req): JsonResponse
     /** @var Game4Player|null $player */
     $player = $this->playerRepo->findOneByGameAndEquipe($game, $equipeId);
     if (!$player) {
-        return $this->jsonOk(['error' => 'player_not_in_game'], 403);
+        return $this->jsonOk(['error' => 'player_not_in_game'], Response::HTTP_FORBIDDEN);
     }
     if ($player->isEliminated()) {
-        return $this->jsonOk(['error' => 'player_eliminated'], 409);
+        return $this->jsonOk(['error' => 'player_eliminated'], Response::HTTP_CONFLICT);
     }
 
     // Pioche 1 carte
     $card = $this->drawOne($game, $player);
     if (!$card) {
-        return $this->jsonOk(['error' => 'deck_empty_or_quota_blocked'], 409);
+        return $this->jsonOk(['error' => 'deck_empty_or_quota_blocked'], Response::HTTP_CONFLICT);
     }
 
     // ?? Important : écrire les changements (deck/hand) en base
@@ -799,26 +799,26 @@ public function g4_validate_target(Request $req): JsonResponse
     $duelId         = (int)($data['duelId'] ?? 0); // ? nouveau
 
     if ($gameId <= 0 || $targetPlayerId <= 0 || $equipeId <= 0) {
-        return $this->json(['error' => 'invalid_parameters'], 400);
+        return $this->jsonOk(['error' => 'invalid_parameters'], Response::HTTP_BAD_REQUEST);
     }
 
     $game = $this->em->find(Game4Game::class, $gameId);
-    if (!$game) return $this->json(['error' => 'game_not_found'], 404);
+    if (!$game) return $this->jsonOk(['error' => 'game_not_found'], Response::HTTP_NOT_FOUND);
 
     // ?? Attention : ici, $equipeId est l'identifiant "?quipe/joueur" c?t? appli
     // Dans ton code, findOneByGameAndEquipe mappe bien game + equipeId -> Game4Player
     $actor  = $this->playerRepo->findOneByGameAndEquipe($game, $equipeId);
     $target = $this->playerRepo->findOneByGameAndEquipe($game, $targetPlayerId);
 
-    if (!$actor)  return $this->json(['valid' => false, 'message' => 'player_not_in_game']);
+    if (!$actor)  return $this->jsonOk(['valid' => false, 'message' => 'player_not_in_game']);
     if (!$target || $target->getGame()->getId() !== $game->getId()) {
-        return $this->json(['valid' => false, 'message' => 'target_not_found']);
+        return $this->jsonOk(['valid' => false, 'message' => 'target_not_found']);
     }
     if ($actor->getId() === $target->getId()) {
-        return $this->json(['valid' => false, 'message' => 'Impossible de vous cibler vous-m?me']);
+        return $this->jsonOk(['valid' => false, 'message' => 'Impossible de vous cibler vous-même']);
     }
     if (!$target->isAlive()) {
-        return $this->json(['valid' => false, 'message' => 'Cible ?limin?e']);
+        return $this->jsonOk(['valid' => false, 'message' => 'Cible éliminée']);
     }
 
     $response = [
@@ -841,32 +841,32 @@ public function g4_validate_target(Request $req): JsonResponse
         /** @var Game4Duel|null $duel */
         $duel = $this->em->find(Game4Duel::class, $duelId);
         if (!$duel) {
-            return $this->json([
+            return $this->jsonOk([
                 'valid' => false,
                 'message' => 'duel_not_found'
-            ], 404);
+            ], Response::HTTP_NOT_FOUND);
         }
         if ($duel->getGame()->getId() !== $game->getId()) {
-            return $this->json([
+            return $this->jsonOk([
                 'valid' => false,
                 'message' => 'duel_game_mismatch'
-            ], 409);
+            ], Response::HTTP_CONFLICT);
         }
         if ($duel->getStatus() !== Game4Duel::STATUS_PENDING) {
-            return $this->json([
+            return $this->jsonOk([
                 'valid' => false,
                 'message' => 'duel_not_pending'
-            ], 409);
+            ], Response::HTTP_CONFLICT);
         }
 
         // Coh?rence participants (ordre A/B indiff?rent)
         $isActorIn = ($duel->getPlayerA()->getId() === $actor->getId() || $duel->getPlayerB()->getId() === $actor->getId());
         $isTargetIn = ($duel->getPlayerA()->getId() === $target->getId() || $duel->getPlayerB()->getId() === $target->getId());
         if (!$isActorIn || !$isTargetIn) {
-            return $this->json([
+            return $this->jsonOk([
                 'valid' => false,
                 'message' => 'duel_players_mismatch'
-            ], 409);
+            ], Response::HTTP_CONFLICT);
         }
 
         // ? Met ? jour les flags c?t? joueurs
@@ -882,11 +882,11 @@ public function g4_validate_target(Request $req): JsonResponse
             'status'       => $duel->getStatus(),
             'opponentOfActor' => $target->getId(),
             'opponentOfTarget'=> $actor->getId(),
-            'banner'       => sprintf("Vous avez ?t? choisi par l??quipe %d", $actor->getEquipeId()),
+            'banner'       => sprintf("Vous avez été choisi par l'équipe %d", $actor->getEquipeId()),
         ];
     }
 
-    return $this->json($response);
+    return $this->jsonOk($response);
 }
 
 
@@ -900,7 +900,7 @@ public function g4_duel_start(Request $req): JsonResponse
     $targetPlayerId = (int)($data['targetPlayerId'] ?? 0);
 
     $game = $this->em->find(Game4Game::class, $gameId);
-    if (!$game) return $this->jsonOk(['success' => false, 'message' => 'game_not_found'], 404);
+    if (!$game) return $this->jsonOk(['success' => false, 'message' => 'game_not_found'], Response::HTTP_NOT_FOUND);
 
     /** @var Game4Player|null $source */
     /** @var Game4Player|null $target */
@@ -908,13 +908,13 @@ public function g4_duel_start(Request $req): JsonResponse
     $target = $this->em->find(Game4Player::class, $targetPlayerId);
 
     if (!$source || $source->getGame()->getId() !== $game->getId()) {
-        return $this->jsonOk(['success' => false, 'message' => 'source_invalid'], 404);
+        return $this->jsonOk(['success' => false, 'message' => 'source_invalid'], Response::HTTP_NOT_FOUND);
     }
     if (!$target || $target->getGame()->getId() !== $game->getId()) {
-        return $this->jsonOk(['success' => false, 'message' => 'target_invalid'], 404);
+        return $this->jsonOk(['success' => false, 'message' => 'target_invalid'], Response::HTTP_NOT_FOUND);
     }
     if (!$source->isAlive() || !$target->isAlive()) {
-        return $this->jsonOk(['success' => false, 'message' => 'player_dead'], 409);
+        return $this->jsonOk(['success' => false, 'message' => 'player_dead'], Response::HTTP_CONFLICT);
     }
 
     // 1) Y a-t-il d?j? un duel PENDING entre ces 2 joueurs (ordre indiff?rent) ?
@@ -937,7 +937,7 @@ public function g4_duel_start(Request $req): JsonResponse
         return $this->jsonOk([
             'success' => true,
             'duelId'  => $duel->getId(),
-            'message' => 'Duel d?j? existant',
+            'message' => 'Duel déjà existant',
         ]);
     }
 
@@ -956,7 +956,7 @@ public function g4_duel_start(Request $req): JsonResponse
             'success' => false,
             'message' => 'player_already_in_pending_duel',
             'duelId'  => $duelForEither->getId(),
-        ], 409);
+        ], Response::HTTP_CONFLICT);
 
         // Option B : retourner ce duel et resynchroniser les flags (d?commente si tu pr?f?res ce comportement)
         /*
@@ -1016,18 +1016,18 @@ public function g4_duel_start(Request $req): JsonResponse
             return $this->jsonOk([
                 'success' => true,
                 'duelId'  => $duel->getId(),
-                'message' => 'Duel concurrent d?tect?, r?utilisation',
+                'message' => 'Duel concurrent détecté, réutilisation',
             ]);
         }
 
         // Rien trouv? : on renvoie une 409 g?n?rique
-        return $this->jsonOk(['success' => false, 'message' => 'duel_conflict'], 409);
+        return $this->jsonOk(['success' => false, 'message' => 'duel_conflict'], Response::HTTP_CONFLICT);
     }
 
     return $this->jsonOk([
         'success' => true,
         'duelId'  => $duel->getId(),
-        'message' => 'Duel lanc?',
+        'message' => 'Duel lancé',
     ]);
 }
 
@@ -1049,7 +1049,7 @@ public function g4_duel_submit(Request $req): JsonResponse
             'success'  => false,
             'message'  => 'duel_not_found',
             'resolved' => true,
-        ], 404);
+        ], Response::HTTP_NOT_FOUND);
     }
 
     $game = $duel->getGame();
@@ -1058,7 +1058,7 @@ public function g4_duel_submit(Request $req): JsonResponse
             'success'  => false,
             'message'  => 'game_not_found_for_duel',
             'resolved' => true,
-        ], 404);
+        ], Response::HTTP_NOT_FOUND);
     }
 
     // Joueur courant (celui qui soumet la carte)
@@ -1068,7 +1068,7 @@ public function g4_duel_submit(Request $req): JsonResponse
             'success'  => false,
             'message'  => 'player_not_in_game',
             'resolved' => true,
-        ], 404);
+        ], Response::HTTP_NOT_FOUND);
     }
 
     // Duel déjà résolu ?
@@ -1123,7 +1123,7 @@ public function g4_duel_submit(Request $req): JsonResponse
             'success'  => false,
             'message'  => 'player_not_in_duel',
             'resolved' => false,
-        ], 403);
+        ], Response::HTTP_FORBIDDEN);
     }
 
     $opponent = $duel->getOpponentFor($player);
@@ -1132,7 +1132,7 @@ public function g4_duel_submit(Request $req): JsonResponse
             'success'  => false,
             'message'  => 'opponent_not_found',
             'resolved' => false,
-        ], 404);
+        ], Response::HTTP_NOT_FOUND);
     }
 
     // Compter combien de cartes ce joueur a déjà jouées dans ce duel
@@ -1145,7 +1145,7 @@ public function g4_duel_submit(Request $req): JsonResponse
             'success'  => false,
             'message'  => 'max_rounds_reached_for_player',
             'resolved' => false,
-        ], 409);
+        ], Response::HTTP_CONFLICT);
     }
 
     // Récupérer la carte en main via son token
@@ -1161,7 +1161,7 @@ public function g4_duel_submit(Request $req): JsonResponse
             'success'  => false,
             'message'  => 'card_not_found_in_hand',
             'resolved' => false,
-        ], 404);
+        ], Response::HTTP_NOT_FOUND);
     }
 
     $def = $card->getDef();
@@ -1170,7 +1170,7 @@ public function g4_duel_submit(Request $req): JsonResponse
             'success'  => false,
             'message'  => 'card_def_not_found',
             'resolved' => false,
-        ], 404);
+        ], Response::HTTP_NOT_FOUND);
     }
 
     // Création du play pour ce duel
@@ -1296,7 +1296,7 @@ public function g4_duel_status(Request $req): JsonResponse
             'logs'     => ['duel_not_found'],
             'plays'    => [],
             'state'    => null,
-        ], 404);
+        ], Response::HTTP_NOT_FOUND);
     }
 
     $game = $duel->getGame();
@@ -1447,7 +1447,7 @@ private function buildG4State(Game4Game $game, ?Game4Player $me, ?string $server
                 'duelId'       => $duel->getId(),
                 'opponentId'   => $duel->getPlayerA()->getId(),
                 'opponentTeam' => $duel->getPlayerA()->getEquipeId(),
-                'banner'       => sprintf("Vous avez été choisi par l’équipe %d", $duel->getPlayerA()->getEquipeId()),
+                'banner'       => sprintf("Vous avez été choisi par l'équipe %d", $duel->getPlayerA()->getEquipeId()),
             ];
         }
     }
