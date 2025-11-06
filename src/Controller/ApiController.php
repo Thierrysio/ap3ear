@@ -1181,7 +1181,7 @@ public function g4_duel_submit(Request $req): JsonResponse
         ->setCard($card)
         ->setCardCode($def->getCode())
         ->setCardType($def->getType())
-        ->setNumValue($def->getNumValue())
+        ->setNumValue($this->extractNumValueFromDef($def))
         ->setRoundIndex($myPlaysCount + 1)
         ->setSubmittedAt(new \DateTimeImmutable());
 
@@ -1263,6 +1263,19 @@ public function g4_duel_submit(Request $req): JsonResponse
     ]);
 }
 
+    // -------- ?preuve 4 : deck (NUM + sp?ciales) --------
+    private function extractNumValueFromDef(Game4CardDef $def): ?int
+    {
+        if ($def->getType() !== Game4DuelPlay::TYPE_NUM) {
+            return null;
+        }
+
+        if (preg_match('/^NUM_(\d+)$/', (string) $def->getCode(), $matches)) {
+            return (int) $matches[1];
+        }
+
+        return null;
+    }
 
 // DUEL STATUS - VERSION CORRIG?E (UTF-8 safe)
 // DUEL STATUS - VERSION UTF-8 SAFE
