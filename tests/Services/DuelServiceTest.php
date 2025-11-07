@@ -105,4 +105,102 @@ final class DuelServiceTest extends KernelTestCase
 
         self::assertNotEmpty($zombieCards, 'The new zombie should receive a zombie card.');
     }
+
+    public function testHumanTurnedZombieHandLimitReturnsLowestNumericCard(): void
+    {
+        $game = (new Game4Game())
+            ->setPhase(Game4Game::PHASE_RUNNING);
+        $this->em->persist($game);
+
+        $zombie = (new Game4Player())
+            ->setGame($game)
+            ->setEquipeId(1)
+            ->setName('Zombie Player')
+            ->setRole(Game4Player::ROLE_ZOMBIE);
+        $this->em->persist($zombie);
+
+        $human = (new Game4Player())
+            ->setGame($game)
+            ->setEquipeId(2)
+            ->setName('Human Player')
+            ->setRole(Game4Player::ROLE_HUMAN);
+        $this->em->persist($human);
+
+        $duel = (new Game4Duel())
+            ->setGame($game)
+            ->setPlayerA($zombie)
+            ->setPlayerB($human)
+            ->setStatus(Game4Duel::STATUS_PENDING);
+        $this->em->persist($duel);
+
+        $zombieDef = (new Game4CardDef())
+            ->setCode('Zombie')
+            ->setLabel('Zombie')
+            ->setText('Contagion')
+            ->setType('ZOMBIE');
+        $this->em->persist($zombieDef);
+
+        $zombieCard = (new Game4Card())
+            ->setGame($game)
+            ->setDef($zombieDef)
+            ->setOwner($zombie)
+            ->setZone(Game4Card::ZONE_HAND)
+            ->setToken('token-zombie');
+        $this->em->persist($zombieCard);
+
+        $numericCards = [];
+        for ($i = 1; $i <= 7; $i++) {
+            $code = sprintf('NUM%02d', $i);
+            $def  = (new Game4CardDef())
+                ->setCode($code)
+                ->setLabel($code)
+                ->setType('NUM');
+            $this->em->persist($def);
+
+            $card = (new Game4Card())
+                ->setGame($game)
+                ->setDef($def)
+                ->setOwner($human)
+                ->setZone(Game4Card::ZONE_HAND)
+                ->setToken(sprintf('token-num-%02d', $i));
+            $this->em->persist($card);
+
+            $numericCards[$i] = $card;
+        }
+
+        $play = (new Game4DuelPlay())
+            ->setDuel($duel)
+            ->setPlayer($zombie)
+            ->setCard($zombieCard)
+            ->setCardCode('ZOMBIE')
+            ->setCardType(Game4DuelPlay::TYPE_ZOMBIE)
+            ->setRoundIndex(1);
+        $duel->addPlay($play);
+        $this->em->persist($play);
+
+        $this->em->flush();
+
+        $this->service->resolve($duel, $this->em);
+
+        $this->em->refresh($human);
+        $this->em->refresh($numericCards[1]);
+
+        self::assertTrue($human->isZombie(), 'The targeted player should become a zombie.');
+
+        $handCards = $this->em->getRepository(Game4Card::class)->findBy([
+            'owner' => $human,
+            'zone'  => Game4Card::ZONE_HAND,
+        ]);
+
+        self::assertCount(7, $handCards, 'The new zombie should not exceed the hand limit.');
+
+        $hasZombieCard = array_filter($handCards, static function (Game4Card $card): bool {
+            return strtoupper($card->getDef()->getCode()) === 'ZOMBIE';
+        });
+
+        self::assertNotEmpty($hasZombieCard, 'The new zombie should keep their zombie card.');
+
+        self::assertNull($numericCards[1]->getOwner(), 'The lowest numeric card should return to the deck.');
+        self::assertSame(Game4Card::ZONE_DECK, $numericCards[1]->getZone());
+    }
 }
