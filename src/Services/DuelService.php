@@ -132,6 +132,11 @@ final class DuelService
 
                     $this->transferAllHand($opponent, $actor);
 
+                    $returned = $this->enforceHandLimit($actor);
+                    if ($returned instanceof Game4Card) {
+                        $this->appendHandLimitLog($actor, $returned, $logs);
+                    }
+
                     $logs[]    = sprintf('%s limine %s (zombie) avec SHOTGUN et rcupre sa main.', $actor->getName(), $opponent->getName());
                     $effects[] = ['type' => 'kill', 'playerId' => $opponent->getId()];
                 } else {
@@ -151,16 +156,9 @@ final class DuelService
                             'to'       => $actor->getId(),
                             'cardCode' => $def?->getCode(),
                         ];
-                        $returned = $this->enforceHandLimitAfterGain($actor, $stolen, $winnerLowestBefore);
+                        $returned = $this->enforceHandLimit($actor, $stolen, $winnerLowestBefore);
                         if ($returned instanceof Game4Card) {
-                            $returnedDef   = $returned->getDef();
-                            $returnedLabel = ($returnedDef instanceof Game4CardDef) ? ($returnedDef->getLabel() ?? $returnedDef->getCode()) : 'carte';
-
-                            if ($returned->getId() === $stolen->getId()) {
-                                $logs[] = sprintf('La main de %s depassait 7 cartes : la carte gagnee (%s) retourne dans le deck.', $actor->getName(), $returnedLabel ?? 'carte');
-                            } else {
-                                $logs[] = sprintf('La main de %s depassait 7 cartes : %s retourne dans le deck.', $actor->getName(), $returnedLabel ?? 'carte');
-                            }
+                            $this->appendHandLimitLog($actor, $returned, $logs, $stolen);
                         }
                         $result->wonCardCode  = $def?->getCode();
                         $result->wonCardLabel = $def?->getLabel();
@@ -374,18 +372,6 @@ private function applyNumericResolution(
             'cardCode' => $code,
         ];
 
-        $returned = $this->enforceHandLimitAfterGain($winner, $stolen, $winnerLowestBefore);
-        if ($returned instanceof Game4Card) {
-            $returnedDef   = $returned->getDef();
-            $returnedLabel = ($returnedDef instanceof Game4CardDef) ? ($returnedDef->getLabel() ?? $returnedDef->getCode()) : 'carte';
-
-            if ($returned->getId() === $stolen->getId()) {
-                $logs[] = sprintf('La main de %s depassait 7 cartes : la carte gagnee (%s) retourne dans le deck.', $winner->getName(), $returnedLabel ?? 'carte');
-            } else {
-                $logs[] = sprintf('La main de %s depassait 7 cartes : %s retourne dans le deck.', $winner->getName(), $returnedLabel ?? 'carte');
-            }
-        }
-
         $result->wonCardCode  = $code;
         $result->wonCardLabel = $label;
     } else {
@@ -400,6 +386,16 @@ private function applyNumericResolution(
     // ?? RGLE :
     // Toutes les cartes joues qui ne sont pas "perdues" (ici : la carte vole) reviennent en main
     $this->returnPlayedCardsToHands($plays, $stolen);
+
+    $returnedWinner = $this->enforceHandLimit($winner, $stolen, $winnerLowestBefore);
+    if ($returnedWinner instanceof Game4Card) {
+        $this->appendHandLimitLog($winner, $returnedWinner, $logs, $stolen);
+    }
+
+    $returnedLoser = $this->enforceHandLimit($loser);
+    if ($returnedLoser instanceof Game4Card) {
+        $this->appendHandLimitLog($loser, $returnedLoser, $logs);
+    }
 
     // ? On marque le duel comme rsolu
     $this->finalizeDuel($duel, $winner, $logs);
@@ -524,7 +520,7 @@ private function returnPlayedCardsToHands(array $plays, ?Game4Card $lost = null)
         return $this->getNumericValueFromCard($lowestCard);
     }
 
-    private function enforceHandLimitAfterGain(Game4Player $player, Game4Card $addedCard, ?int $previousLowest): ?Game4Card
+    private function enforceHandLimit(Game4Player $player, ?Game4Card $addedCard = null, ?int $previousLowest = null): ?Game4Card
     {
         $handCards = $this->cardRepo->findBy(['owner' => $player, 'zone' => Game4Card::ZONE_HAND]);
 
@@ -538,34 +534,52 @@ private function returnPlayedCardsToHands(array $plays, ?Game4Card $lost = null)
         );
 
         if ($numericCards === []) {
-            // Nouvelle règle : on ne renvoie dans le deck qu'une carte numérique.
             return null;
         }
 
-        $addedValue   = $this->getNumericValueFromCard($addedCard);
         $cardToReturn = null;
+        $addedValue   = null;
 
-        if ($addedValue !== null && $previousLowest !== null && $addedValue < $previousLowest) {
-            $cardToReturn = $addedCard;
-        } else {
-            $cardToReturn = $this->findLowestNumericCard($numericCards);
-            if (!$cardToReturn instanceof Game4Card && $addedValue !== null) {
+        if ($addedCard instanceof Game4Card) {
+            $addedValue = $this->getNumericValueFromCard($addedCard);
+            if ($addedValue !== null && $previousLowest !== null && $addedValue < $previousLowest) {
                 $cardToReturn = $addedCard;
             }
         }
 
         if (!$cardToReturn instanceof Game4Card) {
+            $cardToReturn = $this->findLowestNumericCard($numericCards);
+        }
+
+        if (!$cardToReturn instanceof Game4Card && $addedCard instanceof Game4Card && $addedValue !== null) {
             $cardToReturn = $addedCard;
         }
 
+        if (!$cardToReturn instanceof Game4Card) {
+            return null;
+        }
+
         if ($this->getNumericValueFromCard($cardToReturn) === null) {
-            // Sécurité : ne jamais remettre une carte spéciale dans le deck.
             return null;
         }
 
         $cardToReturn->setOwner(null)->setZone(Game4Card::ZONE_DECK);
 
         return $cardToReturn;
+    }
+
+    private function appendHandLimitLog(Game4Player $player, Game4Card $returned, array &$logs, ?Game4Card $gained = null): void
+    {
+        $returnedDef   = $returned->getDef();
+        $returnedLabel = ($returnedDef instanceof Game4CardDef) ? ($returnedDef->getLabel() ?? $returnedDef->getCode()) : 'carte';
+
+        if ($gained instanceof Game4Card && $returned->getId() === $gained->getId()) {
+            $logs[] = sprintf('La main de %s depassait 7 cartes : la carte gagnee (%s) retourne dans le deck.', $player->getName(), $returnedLabel ?? 'carte');
+
+            return;
+        }
+
+        $logs[] = sprintf('La main de %s depassait 7 cartes : %s retourne dans le deck.', $player->getName(), $returnedLabel ?? 'carte');
     }
 
     /**
