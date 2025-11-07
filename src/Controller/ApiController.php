@@ -1543,49 +1543,74 @@ $defs = [
     // -------- ?preuve 4 : tirage respectant ?ligibilit? & quota --------
     private function drawOne(Game4Game $game, Game4Player $player): ?Game4Card
     {
-    
-    // S?curit? : si un autre appel passe par ici, on ?vite tout d?passement
-if ($this->cardRepo->countByOwnerAndZone($player, Game4Card::ZONE_HAND) >= self::G4_MAX_HAND) {
-    return null;
-}
+        $handCount = $this->cardRepo->countByOwnerAndZone($player, Game4Card::ZONE_HAND);
 
-        $maxAttempts = 30; // bornage anti-boucle
+        if ($handCount >= self::G4_MAX_HAND) {
+            return null;
+        }
+
+        if ($handCount === 0) {
+            $mandatory = null;
+            $role      = $player->getRole();
+
+            if ($role === Game4Player::ROLE_HUMAN) {
+                $mandatory = 'SHOTGUN';
+            } elseif ($role === Game4Player::ROLE_ZOMBIE) {
+                $mandatory = 'ZOMBIE';
+            }
+
+            if ($mandatory) {
+                $card = $this->giveSpecificFromDeckOrForge($game, $player, $mandatory);
+                if ($card instanceof Game4Card) {
+                    return $card;
+                }
+            }
+        }
+
+        $maxAttempts     = 30;
         $currentSpecials = $this->countSpecialsInHand($player);
 
         for ($attempt = 0; $attempt < $maxAttempts; $attempt++) {
             $card = $this->cardRepo->pickFromDeck($game);
-if (!$card) return null;
+            if (!$card) {
+                return null;
+            }
 
-$def = $card->getDef();
-$isSpecial = $this->isSpecialDef($def);
+            $def       = $card->getDef();
+            $isSpecial = $this->isSpecialDef($def);
+            $code      = strtoupper($def->getCode());
+            $type      = strtoupper($def->getType());
 
-// 1) compat rôle/carte
-if (!$this->isDefAllowedForPlayer($def, $player)) {
-    // remettre la carte dans le deck
-    $card->setOwner(null)->setZone(Game4Card::ZONE_DECK);
-    $this->em->persist($card);
-    continue;
-}
+            if (!$this->isDefAllowedForPlayer($def, $player)) {
+                $card->setOwner(null)->setZone(Game4Card::ZONE_DECK);
+                $this->em->persist($card);
+                continue;
+            }
 
-// 2) quota spé
-if ($isSpecial && $currentSpecials >= 2) {
-    $card->setOwner(null)->setZone(Game4Card::ZONE_DECK);
-    $this->em->persist($card);
-    continue;
-}
+            if (($type === 'ZOMBIE' || $code === 'ZOMBIE') && $this->cardRepo->handHasCode($player, 'ZOMBIE')) {
+                $card->setOwner(null)->setZone(Game4Card::ZONE_DECK);
+                $this->em->persist($card);
+                continue;
+            }
 
-            // 3) Carte OK -> on l'attribue
+            if ($isSpecial && $currentSpecials >= 2) {
+                $card->setOwner(null)->setZone(Game4Card::ZONE_DECK);
+                $this->em->persist($card);
+                continue;
+            }
+
             $card->setOwner($player)
                  ->setZone(Game4Card::ZONE_HAND)
                  ->setToken($this->makeToken($game->getId(), $player->getId(), $def->getCode()));
             $game->incDrawCount();
 
-            if ($isSpecial) $currentSpecials++;
+            if ($isSpecial) {
+                $currentSpecials++;
+            }
 
             return $card;
         }
 
-        // Pas de carte admissible trouv?e dans le budget d'essais
         return null;
     }
 
