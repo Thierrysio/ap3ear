@@ -532,13 +532,23 @@ private function returnPlayedCardsToHands(array $plays, ?Game4Card $lost = null)
             return null;
         }
 
+        $numericCards = array_filter(
+            $handCards,
+            fn (Game4Card $card) => $this->getNumericValueFromCard($card) !== null
+        );
+
+        if ($numericCards === []) {
+            // Nouvelle règle : on ne renvoie dans le deck qu'une carte numérique.
+            return null;
+        }
+
         $addedValue   = $this->getNumericValueFromCard($addedCard);
         $cardToReturn = null;
 
         if ($addedValue !== null && $previousLowest !== null && $addedValue < $previousLowest) {
             $cardToReturn = $addedCard;
         } else {
-            $cardToReturn = $this->findLowestNumericCard($handCards);
+            $cardToReturn = $this->findLowestNumericCard($numericCards);
             if (!$cardToReturn instanceof Game4Card && $addedValue !== null) {
                 $cardToReturn = $addedCard;
             }
@@ -546,6 +556,11 @@ private function returnPlayedCardsToHands(array $plays, ?Game4Card $lost = null)
 
         if (!$cardToReturn instanceof Game4Card) {
             $cardToReturn = $addedCard;
+        }
+
+        if ($this->getNumericValueFromCard($cardToReturn) === null) {
+            // Sécurité : ne jamais remettre une carte spéciale dans le deck.
+            return null;
         }
 
         $cardToReturn->setOwner(null)->setZone(Game4Card::ZONE_DECK);
