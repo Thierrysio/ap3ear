@@ -141,7 +141,7 @@ final class DuelService
                     ];
                 }
 
-                if ($opponent->getRole() === Game4Player::ROLE_HUMAN) {
+                if ($this->isHuman($opponent)) {
                     $actorHighest = $this->getHighestNumericCard($actor);
                     if ($actorHighest instanceof Game4Card) {
                         $actorHighest->setOwner($opponent)->setZone(Game4Card::ZONE_HAND);
@@ -214,7 +214,7 @@ final class DuelService
                     }
 
                     $this->updateEliminationState($actor, $logs, $effects);
-                } elseif ($opponent->getRole() === Game4Player::ROLE_ZOMBIE) {
+                } elseif ($this->isZombie($opponent)) {
                     if (method_exists($opponent, 'setEliminated')) {
                         $opponent->setEliminated(true);
                     } else {
@@ -239,7 +239,7 @@ final class DuelService
 
             case Game4DuelPlay::TYPE_VACCINE:
                 $vaccineCard = $specialPlay->getCard();
-                if ($opponent->getRole() === Game4Player::ROLE_ZOMBIE) {
+                if ($this->isZombie($opponent)) {
                     if (method_exists($opponent, 'becomeHuman')) {
                         $opponent->becomeHuman();
                     } else {
@@ -330,7 +330,7 @@ final class DuelService
 
             case Game4DuelPlay::TYPE_ZOMBIE:
                 $zombieCard = $specialPlay->getCard();
-                if ($actor->getRole() !== Game4Player::ROLE_ZOMBIE) {
+                if (!$this->isZombie($actor)) {
                     $logs[] = "ZOMBIE jou mais l'acteur n\'est pas zombie.";
                     break;
                 }
@@ -340,7 +340,7 @@ final class DuelService
                     $logs[] = sprintf('La carte ZOMBIE reste en main de %s.', $actor->getName());
                 }
 
-                if ($opponent->getRole() === Game4Player::ROLE_ZOMBIE) {
+                if ($this->isZombie($opponent)) {
                     $actorHighest = $this->getHighestNumericCard($actor);
                     if ($actorHighest instanceof Game4Card) {
                         $actorHighest->setOwner($opponent)->setZone(Game4Card::ZONE_HAND);
@@ -366,7 +366,7 @@ final class DuelService
                     }
 
                     $this->updateEliminationState($actor, $logs, $effects);
-                } elseif ($opponent->getRole() === Game4Player::ROLE_HUMAN) {
+                } elseif ($this->isHuman($opponent)) {
                     if (method_exists($opponent, 'becomeZombie')) {
                         $opponent->becomeZombie();
                     } else {
@@ -1039,6 +1039,16 @@ private function returnPlayedCardsToHands(array $plays, ?Game4Card $lost = null)
         }
 
         return $last;
+    }
+
+    private function isZombie(Game4Player $player): bool
+    {
+        return strtolower((string) $player->getRole()) === Game4Player::ROLE_ZOMBIE;
+    }
+
+    private function isHuman(Game4Player $player): bool
+    {
+        return strtolower((string) $player->getRole()) === Game4Player::ROLE_HUMAN;
     }
 
     /**
