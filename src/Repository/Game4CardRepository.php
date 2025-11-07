@@ -29,7 +29,7 @@ class Game4CardRepository extends ServiceEntityRepository
             ->getQuery()->getSingleScalarResult();
     }
     
-// Sélectionne et sort une carte précise (code) depuis le deck
+// SÃ©lectionne et sort une carte prÃ©cise (code) depuis le deck
 // --- pickFromDeckByCode : remplace setParameters([...]) par setParameter() ---
 public function pickFromDeckByCode(Game4Game $game, string $code): ?Game4Card
 {
@@ -48,10 +48,10 @@ public function pickFromDeckByCode(Game4Game $game, string $code): ?Game4Card
 }
 
 
-// Privilégie une NUM lors de la pioche (pour atteindre rapidement les 5 NUM)
+// PrivilÃ©gie une NUM lors de la pioche (pour atteindre rapidement les 5 NUM)
 public function pickFromDeckPreferNumeric(Game4Game $game): ?Game4Card
 {
-    // 1) Tenter une NUM d’abord
+    // 1) Tenter une NUM dâ€™abord
     $qbNum = $this->createQueryBuilder('c')
         ->join('c.def', 'd')
         ->andWhere('c.game = :g')
@@ -65,7 +65,7 @@ public function pickFromDeckPreferNumeric(Game4Game $game): ?Game4Card
     $card = $qbNum->getQuery()->getOneOrNullResult();
     if ($card) return $card;
 
-    // 2) Sinon n’importe quelle carte
+    // 2) Sinon nâ€™importe quelle carte
     return $this->pickFromDeck($game);
 }
 
@@ -118,6 +118,25 @@ public function pickNumericFromDeck(Game4Game $game): ?Game4Card
         ->getOneOrNullResult();
 }
 
+public function pickHighestNumericFromDeck(Game4Game $game): ?Game4Card
+{
+    return $this->createQueryBuilder('c')
+        ->join('c.def', 'd')
+        ->andWhere('c.game = :g')
+        ->andWhere('c.zone = :z')
+        ->andWhere('d.type = :t')
+        ->setParameter('g', $game)
+        ->setParameter('z', Game4Card::ZONE_DECK)
+        ->setParameter('t', 'NUM')
+        ->orderBy('LENGTH(d.code)', 'DESC')
+        ->addOrderBy('d.code', 'DESC')
+        ->addOrderBy('c.id', 'ASC')
+        ->setMaxResults(1)
+        ->getQuery()
+        ->getOneOrNullResult();
+}
+
+
 
 // --- handHasCode : remplace setParameters([...]) par setParameter() ---
 public function handHasCode(Game4Player $player, string $code): bool
@@ -137,7 +156,7 @@ public function handHasCode(Game4Player $player, string $code): bool
 
 
 
-    /** Sélectionne une carte aléatoire dans le deck du jeu (ZONE_DECK) */
+    /** SÃ©lectionne une carte alÃ©atoire dans le deck du jeu (ZONE_DECK) */
     public function pickFromDeck(Game4Game $game): ?Game4Card
 {
     $conn = $this->getEntityManager()->getConnection(); // ? au lieu de $this->_em
@@ -161,7 +180,7 @@ public function handHasCode(Game4Player $player, string $code): bool
 }
 
 
-    /** Compte les cartes d’un joueur dans une zone donnée (utile pour la main à 7) */
+    /** Compte les cartes dâ€™un joueur dans une zone donnÃ©e (utile pour la main Ã  7) */
     public function countByOwnerAndZone(Game4Player $owner, string $zone): int
     {
         $qb = $this->createQueryBuilder('c');
@@ -180,7 +199,7 @@ public function handHasCode(Game4Player $player, string $code): bool
     }
 
     /**
-     * Toutes les cartes en main d’un joueur.
+     * Toutes les cartes en main dâ€™un joueur.
      * @return Game4Card[]
      */
     public function findHandByPlayer(Game4Player $player): array
@@ -204,8 +223,8 @@ public function handHasCode(Game4Player $player, string $code): bool
     }
 
     /**
-     * Supprime UNE carte 'ZOMBIE' dans la main du joueur si présente.
-     * Retourne true si suppression effectuée.
+     * Supprime UNE carte 'ZOMBIE' dans la main du joueur si prÃ©sente.
+     * Retourne true si suppression effectuÃ©e.
      */
     public function removeOneZombieCardFromHand(Game4Player $player): bool
     {
