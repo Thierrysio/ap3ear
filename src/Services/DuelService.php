@@ -118,55 +118,36 @@ final class DuelService
         $effects     = [];
         $winner      = $actor;
         $stolen      = null;
-        $cardToKeep  = null;
 
         $type = strtoupper((string) $specialPlay->getCardType());
 
         switch ($type) {
             case Game4DuelPlay::TYPE_SHOTGUN:
                 $shotgunCard = $specialPlay->getCard();
-                if ($opponent->getRole() === Game4Player::ROLE_ZOMBIE) {
-                    if (method_exists($opponent, 'setEliminated')) {
-                        $opponent->setEliminated(true);
-                    } else {
-                        $opponent->setIsAlive(false);
-                    }
+                if ($shotgunCard instanceof Game4Card) {
+                    $shotgunCard->setOwner($opponent)->setZone(Game4Card::ZONE_HAND);
+                    [$shotgunCode, $shotgunLabel] = $this->describeCard($shotgunCard);
+                    $logs[] = sprintf(
+                        '%s perd sa carte SHOTGUN (%s) au profit de %s.',
+                        $actor->getName(),
+                        $shotgunLabel ?? $shotgunCode ?? 'carte',
+                        $opponent->getName()
+                    );
+                    $effects[] = [
+                        'type'     => 'card_transfer',
+                        'from'     => $actor->getId(),
+                        'to'       => $opponent->getId(),
+                        'cardCode' => $shotgunCode,
+                    ];
+                }
 
-                    $transferred  = $this->transferAllHand($opponent, $actor);
-                    $handSnapshot = $this->collectHandSnapshot($actor, $plays, $transferred);
-
-                    foreach ($this->enforceHandLimit($actor, handSnapshot: $handSnapshot) as $returned) {
-                        $this->appendHandLimitLog($actor, $returned, $logs);
-                    }
-
-                    $logs[]    = sprintf('%s limine %s (zombie) avec SHOTGUN et rcupre sa main.', $actor->getName(), $opponent->getName());
-                    $effects[] = ['type' => 'kill', 'playerId' => $opponent->getId()];
-                } else {
-                    if ($shotgunCard instanceof Game4Card) {
-                        $shotgunCard->setOwner($opponent)->setZone(Game4Card::ZONE_HAND);
-                        $cardToKeep = $shotgunCard;
-
-                        [$shotgunCode, $shotgunLabel] = $this->describeCard($shotgunCard);
-                        $logs[] = sprintf(
-                            '%s remet sa carte SHOTGUN (%s)  %s.',
-                            $actor->getName(),
-                            $shotgunLabel ?? $shotgunCode ?? 'carte',
-                            $opponent->getName()
-                        );
-                        $effects[] = [
-                            'type'     => 'card_transfer',
-                            'from'     => $actor->getId(),
-                            'to'       => $opponent->getId(),
-                            'cardCode' => $shotgunCode,
-                        ];
-                    }
-
+                if ($opponent->getRole() === Game4Player::ROLE_HUMAN) {
                     $actorHighest = $this->getHighestNumericCard($actor);
                     if ($actorHighest instanceof Game4Card) {
                         $actorHighest->setOwner($opponent)->setZone(Game4Card::ZONE_HAND);
                         [$code, $label] = $this->describeCard($actorHighest);
                         $logs[] = sprintf(
-                            '%s cde sa meilleure carte numerique (%s)  %s.',
+                            '%s cde sa carte numerique la plus forte (%s)  %s.',
                             $actor->getName(),
                             $label ?? $code ?? 'carte',
                             $opponent->getName()
@@ -178,7 +159,7 @@ final class DuelService
                             'cardCode' => $code,
                         ];
                     } else {
-                        $logs[] = sprintf("%s n'avait aucune carte numerique  abandonner.", $actor->getName());
+                        $logs[] = sprintf("%s n'avait aucune carte numerique  donner.", $actor->getName());
                     }
 
                     $handSnapshot = $this->collectHandSnapshot($opponent, $plays, array_filter([$shotgunCard, $actorHighest]));
@@ -201,7 +182,7 @@ final class DuelService
                         $opponent->setIsAlive(false);
                     }
 
-                    $logs[]    = sprintf('%s est transform en zombie puis limin par %s.', $opponent->getName(), $actor->getName());
+                    $logs[]    = sprintf('%s devient zombie et est limin par %s.', $opponent->getName(), $actor->getName());
                     $effects[] = ['type' => 'role', 'playerId' => $opponent->getId(), 'role' => Game4Player::ROLE_ZOMBIE];
                     $effects[] = ['type' => 'kill', 'playerId' => $opponent->getId()];
 
@@ -233,8 +214,27 @@ final class DuelService
                     }
 
                     $this->updateEliminationState($actor, $logs, $effects);
-                    $this->updateEliminationState($opponent, $logs, $effects);
+                } elseif ($opponent->getRole() === Game4Player::ROLE_ZOMBIE) {
+                    if (method_exists($opponent, 'setEliminated')) {
+                        $opponent->setEliminated(true);
+                    } else {
+                        $opponent->setIsAlive(false);
+                    }
+
+                    $transferred  = $this->transferAllHand($opponent, $actor);
+                    $handSnapshot = $this->collectHandSnapshot($actor, $plays, $transferred);
+
+                    foreach ($this->enforceHandLimit($actor, handSnapshot: $handSnapshot) as $returned) {
+                        $this->appendHandLimitLog($actor, $returned, $logs);
+                    }
+
+                    $logs[]    = sprintf('%s limine %s (zombie) avec SHOTGUN et rcupre sa main.', $actor->getName(), $opponent->getName());
+                    $effects[] = ['type' => 'kill', 'playerId' => $opponent->getId()];
+                } else {
+                    $logs[] = "SHOTGUN jou mais l'adversaire n'est pas une cible valide.";
                 }
+
+                $this->updateEliminationState($opponent, $logs, $effects);
                 break;
 
             case Game4DuelPlay::TYPE_VACCINE:
@@ -284,7 +284,6 @@ final class DuelService
                 } else {
                     if ($vaccineCard instanceof Game4Card) {
                         $vaccineCard->setOwner($opponent)->setZone(Game4Card::ZONE_HAND);
-                        $cardToKeep = $vaccineCard;
                         [$code, $label] = $this->describeCard($vaccineCard);
                         $logs[] = sprintf(
                             '%s remet sa carte VACCINE (%s)  %s.',
@@ -338,7 +337,6 @@ final class DuelService
 
                 if ($zombieCard instanceof Game4Card) {
                     $zombieCard->setOwner($actor)->setZone(Game4Card::ZONE_HAND);
-                    $cardToKeep = $zombieCard;
                     $logs[] = sprintf('La carte ZOMBIE reste en main de %s.', $actor->getName());
                 }
 
@@ -348,7 +346,7 @@ final class DuelService
                         $actorHighest->setOwner($opponent)->setZone(Game4Card::ZONE_HAND);
                         [$code, $label] = $this->describeCard($actorHighest);
                         $logs[] = sprintf(
-                            '%s (zombie) cde sa meilleure carte numerique (%s)  %s.',
+                            '%s (zombie) cde sa carte numerique la plus forte (%s)  %s.',
                             $actor->getName(),
                             $label ?? $code ?? 'carte',
                             $opponent->getName()
@@ -359,7 +357,7 @@ final class DuelService
                             'to'       => $opponent->getId(),
                             'cardCode' => $code,
                         ];
-                        $handSnapshot = $this->collectHandSnapshot($opponent, $plays, [$zombieCard, $actorHighest]);
+                        $handSnapshot = $this->collectHandSnapshot($opponent, $plays, array_filter([$zombieCard, $actorHighest]));
                         foreach ($this->enforceHandLimit($opponent, $actorHighest, handSnapshot: $handSnapshot) as $returned) {
                             $this->appendHandLimitLog($opponent, $returned, $logs, $actorHighest);
                         }
@@ -378,8 +376,6 @@ final class DuelService
                         }
                     }
 
-                    $replacements = $this->replaceShotgunAndVaccineWithHighestNumerics($opponent, $game, $em, $logs);
-
                     $givenCard = $this->giveSpecificCardTo('ZOMBIE', $game, $opponent, $em, $logs);
                     $logs[]    = sprintf('%s infecte %s qui devient zombie.', $actor->getName(), $opponent->getName());
                     $effects[] = ['type' => 'role', 'playerId' => $opponent->getId(), 'role' => Game4Player::ROLE_ZOMBIE];
@@ -387,11 +383,6 @@ final class DuelService
                     $extraCards = [];
                     if ($givenCard instanceof Game4Card) {
                         $extraCards[] = $givenCard;
-                    }
-                    foreach ($replacements as $replacement) {
-                        if ($replacement instanceof Game4Card) {
-                            $extraCards[] = $replacement;
-                        }
                     }
                     if ($zombieCard instanceof Game4Card) {
                         $extraCards[] = $zombieCard;
@@ -415,28 +406,7 @@ final class DuelService
         $result->logs     = $logs;
         $result->effects  = $effects;
 
-        $cardsToKeep = [];
-        if ($cardToKeep instanceof Game4Card) {
-            $cardsToKeep[] = $cardToKeep;
-        } elseif (is_array($cardToKeep)) {
-            foreach ($cardToKeep as $kept) {
-                if ($kept instanceof Game4Card) {
-                    $cardsToKeep[] = $kept;
-                }
-            }
-        }
-
-        if ($stolen instanceof Game4Card) {
-            $cardsToKeep[] = $stolen;
-        }
-
-        if (!$cardsToKeep) {
-            $cardsToKeep = null;
-        } elseif (count($cardsToKeep) === 1) {
-            $cardsToKeep = $cardsToKeep[0];
-        }
-
-        $this->discardPlays($plays, $cardsToKeep);
+        $this->returnPlayedCardsToHands($plays, null);
         $this->finalizeDuel($duel, $winner, $logs);
 
         return true;
@@ -1033,50 +1003,6 @@ private function returnPlayedCardsToHands(array $plays, ?Game4Card $lost = null)
         return $bestCard;
     }
 
-    private function discardPlays(array $plays, Game4Card|array|null $cardsToKeep): void
-    {
-        $idsToKeep = [];
-        if ($cardsToKeep instanceof Game4Card) {
-            $id = $cardsToKeep->getId();
-            if ($id !== null) {
-                $idsToKeep[$id] = true;
-            }
-        } elseif (is_array($cardsToKeep)) {
-            foreach ($cardsToKeep as $card) {
-                if (!$card instanceof Game4Card) {
-                    continue;
-                }
-
-                $id = $card->getId();
-                if ($id !== null) {
-                    $idsToKeep[$id] = true;
-                }
-            }
-        }
-
-        foreach ($plays as $play) {
-            if (!$play instanceof Game4DuelPlay) {
-                continue;
-            }
-
-            $card = $play->getCard();
-            if (!$card instanceof Game4Card) {
-                continue;
-            }
-
-            $cardId = $card->getId();
-            if ($cardId !== null && isset($idsToKeep[$cardId])) {
-                continue; // la carte a t transfre au vainqueur
-            }
-
-            $card->setOwner(null)->setZone(Game4Card::ZONE_DISCARD);
-            $game = $card->getGame();
-            if ($game instanceof Game4Game && method_exists($game, 'incDiscardCount')) {
-                $game->incDiscardCount();
-            }
-        }
-    }
-
     private function updateEliminationState(Game4Player $player, array &$logs, array &$effects): void
     {
         if (method_exists($player, 'isEliminated') && $player->isEliminated()) {
@@ -1132,108 +1058,6 @@ private function returnPlayedCardsToHands(array $plays, ?Game4Card $lost = null)
         }
 
         return $moved;
-    }
-
-    /**
-     * Remplace les cartes SHOTGUN/VACCINE d'un joueur devenu zombie par les meilleures cartes numeriques disponibles.
-     *
-     * @return Game4Card[]
-     */
-    private function replaceShotgunAndVaccineWithHighestNumerics(
-        Game4Player $player,
-        Game4Game $game,
-        EntityManagerInterface $em,
-        array &$logs
-    ): array {
-        $replacements = [];
-
-        $handCards = $this->cardRepo->findBy(['owner' => $player, 'zone' => Game4Card::ZONE_HAND]);
-        foreach ($handCards as $card) {
-            if (!$card instanceof Game4Card) {
-                continue;
-            }
-
-            $def = $card->getDef();
-            if (!$def instanceof Game4CardDef) {
-                continue;
-            }
-
-            $type = strtoupper((string) $def->getType());
-            if (!\in_array($type, [Game4DuelPlay::TYPE_SHOTGUN, Game4DuelPlay::TYPE_VACCINE], true)) {
-                continue;
-            }
-
-            [$removedCode, $removedLabel] = $this->describeCard($card);
-            $removedDisplay      = $removedLabel ?? $removedCode ?? 'carte';
-            $removedCodeDisplay  = $removedCode ?? 'carte';
-
-            $replacement = $this->cardRepo->pickHighestNumericFromDeck($game);
-            if ($replacement instanceof Game4Card) {
-                $replacement->setOwner($player)->setZone(Game4Card::ZONE_HAND);
-                [$replacementCode, $replacementLabel] = $this->describeCard($replacement);
-                $replacementDisplay = $replacementLabel ?? $replacementCode ?? 'carte numerique';
-
-                $logs[] = sprintf(
-                    '%s perd %s (%s) en devenant zombie et recoit %s.',
-                    $player->getName(),
-                    $removedDisplay,
-                    $removedCodeDisplay,
-                    $replacementDisplay
-                );
-
-                $card->setOwner(null)->setZone(Game4Card::ZONE_DECK);
-                $replacements[] = $replacement;
-
-                continue;
-            }
-
-            $highestDef = $this->findHighestNumericDef($em);
-            if ($highestDef instanceof Game4CardDef) {
-                $card->setDef($highestDef);
-
-                $replacementCode     = $highestDef->getCode();
-                $replacementLabel    = $highestDef->getLabel() ?? $replacementCode;
-                $replacementDisplay  = $replacementLabel ?? $replacementCode ?? 'carte numerique';
-
-                $logs[] = sprintf(
-                    '%s voit sa carte %s (%s) convertie en %s faute de pioche disponible.',
-                    $player->getName(),
-                    $removedDisplay,
-                    $removedCodeDisplay,
-                    $replacementDisplay
-                );
-
-                $replacements[] = $card;
-
-                continue;
-            }
-
-            $logs[] = sprintf(
-                '%s perd %s (%s) mais aucune carte numerique de remplacement n\'est disponible.',
-                $player->getName(),
-                $removedDisplay,
-                $removedCodeDisplay
-            );
-
-            $card->setOwner(null)->setZone(Game4Card::ZONE_DECK);
-        }
-
-        return $replacements;
-    }
-
-    private function findHighestNumericDef(EntityManagerInterface $em): ?Game4CardDef
-    {
-        $qb = $em->createQueryBuilder();
-
-        return $qb->select('d')
-            ->from(Game4CardDef::class, 'd')
-            ->andWhere('d.type = :type')
-            ->setParameter('type', 'NUM')
-            ->orderBy('LENGTH(d.code)', 'DESC')
-            ->addOrderBy('d.code', 'DESC')
-            ->setMaxResults(1)
-            ->getQuery()
-            ->getOneOrNullResult();
     }
 
     private function giveSpecificCardTo(
