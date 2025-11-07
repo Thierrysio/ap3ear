@@ -85,6 +85,76 @@ final class DuelService
         return $result;
     }
 
+    public function forceResolve(
+        Game4Duel $duel,
+        EntityManagerInterface $em,
+        ?Game4Player $requester = null
+    ): stdClass {
+        $result = $this->resolve($duel, $em);
+
+        if ($duel->getStatus() === Game4Duel::STATUS_RESOLVED) {
+            return $result;
+        }
+
+        $playerA = $duel->getPlayerA();
+        $playerB = $duel->getPlayerB();
+
+        if (!$playerA || !$playerB) {
+            $result->logs[] = 'Impossible de forcer la résolution : participants manquants.';
+            return $result;
+        }
+
+        $plays = $this->playRepo->findAllByDuel($duel);
+        $hasA  = $this->hasSubmitted($duel, $playerA);
+        $hasB  = $this->hasSubmitted($duel, $playerB);
+
+        $winner  = null;
+        $logs    = $result->logs ?? [];
+        $effects = $result->effects ?? [];
+
+        if ($hasA && !$hasB) {
+            $winner = $playerA;
+            $logs[] = sprintf(
+                '%s remporte le duel par forfait de %s.',
+                $playerA->getName(),
+                $playerB->getName()
+            );
+        } elseif ($hasB && !$hasA) {
+            $winner = $playerB;
+            $logs[] = sprintf(
+                '%s remporte le duel par forfait de %s.',
+                $playerB->getName(),
+                $playerA->getName()
+            );
+        } else {
+            $logs[] = 'Duel clôturé automatiquement sans vainqueur faute de participation.';
+        }
+
+        if ($requester) {
+            $logs[] = sprintf(
+                'Résolution forcée déclenchée par %s (équipe %d).',
+                $requester->getName(),
+                $requester->getEquipeId()
+            );
+        }
+
+        $this->returnPlayedCardsToHands($plays, null);
+
+        $logs = $this->sanitizeLogs($logs);
+        $this->finalizeDuel($duel, $winner, $logs);
+
+        $result->winnerId     = $winner?->getId();
+        $result->logs         = $logs;
+        $result->effects      = $effects;
+        $result->wonCardCode  = null;
+        $result->wonCardLabel = null;
+        $result->pointsDelta  = $result->pointsDelta ?? 0;
+
+        $em->flush();
+
+        return $result;
+    }
+
     private function createEmptyResult(): stdClass
     {
         $result = new stdClass();
