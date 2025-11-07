@@ -8,6 +8,7 @@ use App\Entity\Game4Duel;
 use App\Entity\Game4DuelPlay;
 use App\Entity\Game4Game;
 use App\Entity\Game4Player;
+use App\Repository\Game4CardDefRepository;
 use App\Repository\Game4CardRepository;
 use App\Repository\Game4DuelPlayRepository;
 use Doctrine\ORM\EntityManagerInterface;
@@ -1142,10 +1143,21 @@ private function returnPlayedCardsToHands(array $plays, ?Game4Card $lost = null)
         EntityManagerInterface $em,
         array &$logs
     ): ?Game4Card {
-        /** @var Game4CardDef|null $def */
-        $def = $em->getRepository(Game4CardDef::class)->findOneBy(['code' => $code]);
-        if (!$def) {
-            return null;
+        $defRepo = $em->getRepository(Game4CardDef::class);
+
+        if ($defRepo instanceof \App\Repository\Game4CardDefRepository) {
+            $def = $defRepo->findOneByCode($code) ?? $defRepo->findOneByCodeInsensitive($code);
+        } else {
+            $def = $defRepo->findOneBy(['code' => $code]);
+        }
+
+        if (!$def instanceof Game4CardDef) {
+            $def = (new Game4CardDef())
+                ->setCode($code)
+                ->setLabel(ucfirst(strtolower($code)))
+                ->setText('')
+                ->setType(mb_strtoupper($code));
+            $em->persist($def);
         }
 
         $card = (new Game4Card())

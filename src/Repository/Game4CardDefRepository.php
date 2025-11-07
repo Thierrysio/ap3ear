@@ -17,4 +17,14 @@ class Game4CardDefRepository extends ServiceEntityRepository
     {
         return $this->findOneBy(['code' => $code]);
     }
+
+    public function findOneByCodeInsensitive(string $code): ?Game4CardDef
+    {
+        return $this->createQueryBuilder('d')
+            ->where('UPPER(d.code) = :code')
+            ->setParameter('code', mb_strtoupper($code))
+            ->setMaxResults(1)
+            ->getQuery()
+            ->getOneOrNullResult();
+    }
 }
