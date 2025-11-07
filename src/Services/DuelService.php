@@ -119,30 +119,33 @@ final class DuelService
         $effects     = [];
         $winner      = $actor;
         $stolen      = null;
+        $cardsToSkipReturn = [];
+        $handsToDeck       = [];
 
         $type = strtoupper((string) $specialPlay->getCardType());
 
         switch ($type) {
             case Game4DuelPlay::TYPE_SHOTGUN:
                 $shotgunCard = $specialPlay->getCard();
-                if ($shotgunCard instanceof Game4Card) {
-                    $shotgunCard->setOwner($opponent)->setZone(Game4Card::ZONE_HAND);
-                    [$shotgunCode, $shotgunLabel] = $this->describeCard($shotgunCard);
-                    $logs[] = sprintf(
-                        '%s perd sa carte SHOTGUN (%s) au profit de %s.',
-                        $actor->getName(),
-                        $shotgunLabel ?? $shotgunCode ?? 'carte',
-                        $opponent->getName()
-                    );
-                    $effects[] = [
-                        'type'     => 'card_transfer',
-                        'from'     => $actor->getId(),
-                        'to'       => $opponent->getId(),
-                        'cardCode' => $shotgunCode,
-                    ];
-                }
 
                 if ($this->isHuman($opponent)) {
+                    if ($shotgunCard instanceof Game4Card) {
+                        $shotgunCard->setOwner($opponent)->setZone(Game4Card::ZONE_HAND);
+                        [$shotgunCode, $shotgunLabel] = $this->describeCard($shotgunCard);
+                        $logs[] = sprintf(
+                            '%s perd sa carte SHOTGUN (%s) au profit de %s.',
+                            $actor->getName(),
+                            $shotgunLabel ?? $shotgunCode ?? 'carte',
+                            $opponent->getName()
+                        );
+                        $effects[] = [
+                            'type'     => 'card_transfer',
+                            'from'     => $actor->getId(),
+                            'to'       => $opponent->getId(),
+                            'cardCode' => $shotgunCode,
+                        ];
+                    }
+
                     $actorHighest = $this->getHighestNumericCard($actor);
                     if ($actorHighest instanceof Game4Card) {
                         $actorHighest->setOwner($opponent)->setZone(Game4Card::ZONE_HAND);
@@ -222,15 +225,62 @@ final class DuelService
                         $opponent->setIsAlive(false);
                     }
 
-                    $transferred  = $this->transferAllHand($opponent, $actor);
-                    $handSnapshot = $this->collectHandSnapshot($actor, $plays, $transferred);
-
-                    foreach ($this->enforceHandLimit($actor, handSnapshot: $handSnapshot) as $returned) {
-                        $this->appendHandLimitLog($actor, $returned, $logs);
+                    if ($shotgunCard instanceof Game4Card) {
+                        $shotgunCard->setOwner(null)->setZone(Game4Card::ZONE_DECK);
+                        $cardsToSkipReturn[] = $shotgunCard;
+                        [$shotgunCode, $shotgunLabel] = $this->describeCard($shotgunCard);
+                        $logs[] = sprintf(
+                            'Le SHOTGUN (%s) utilisé par %s est retiré du jeu actif.',
+                            $shotgunLabel ?? $shotgunCode ?? 'carte',
+                            $actor->getName()
+                        );
                     }
 
-                    $logs[]    = sprintf('%s limine %s (zombie) avec SHOTGUN et rcupre sa main.', $actor->getName(), $opponent->getName());
+                    $logs[]    = sprintf('%s limine %s (zombie) avec SHOTGUN.', $actor->getName(), $opponent->getName());
                     $effects[] = ['type' => 'kill', 'playerId' => $opponent->getId()];
+
+                    $winnerLowestBefore = $this->getLowestNumericValue($actor);
+                    $stolen              = $this->stealHighestPostedNumeric($duel, $actor, $opponent);
+
+                    if (!$stolen instanceof Game4Card) {
+                        $stolen = $this->getHighestNumericCard($opponent);
+                        if ($stolen instanceof Game4Card) {
+                            $stolen->setOwner($actor)->setZone(Game4Card::ZONE_HAND);
+                        }
+                    }
+
+                    if ($stolen instanceof Game4Card) {
+                        [$code, $label] = $this->describeCard($stolen);
+                        $logs[] = sprintf(
+                            '%s rcupre la meilleure carte rvle de %s (%s).',
+                            $actor->getName(),
+                            $opponent->getName(),
+                            $label ?? $code ?? 'carte'
+                        );
+                        $effects[] = [
+                            'type'     => 'card_transfer',
+                            'from'     => $opponent->getId(),
+                            'to'       => $actor->getId(),
+                            'cardCode' => $code,
+                        ];
+                        $result->wonCardCode  = $code;
+                        $result->wonCardLabel = $label;
+
+                        $handSnapshot = $this->collectHandSnapshot($actor, $plays, [$stolen]);
+                        foreach ($this->enforceHandLimit($actor, $stolen, $winnerLowestBefore, $handSnapshot) as $returned) {
+                            $this->appendHandLimitLog($actor, $returned, $logs, $stolen);
+                        }
+                    } else {
+                        $logs[] = sprintf("%s n'avait aucune carte numrique rvle  offrir.", $opponent->getName());
+                        $handSnapshot = $this->collectHandSnapshot($actor, $plays);
+                        foreach ($this->enforceHandLimit($actor, handSnapshot: $handSnapshot) as $returned) {
+                            $this->appendHandLimitLog($actor, $returned, $logs);
+                        }
+                        $result->wonCardCode  = null;
+                        $result->wonCardLabel = null;
+                    }
+
+                    $handsToDeck[] = $opponent;
                 } else {
                     $logs[] = "SHOTGUN jou mais l'adversaire n'est pas une cible valide.";
                 }
@@ -413,7 +463,22 @@ final class DuelService
         $result->logs     = $logs;
         $result->effects  = $effects;
 
-        $this->returnPlayedCardsToHands($plays, null);
+        $this->returnPlayedCardsToHands($plays, $cardsToSkipReturn);
+
+        foreach ($handsToDeck as $playerToEmpty) {
+            if (!$playerToEmpty instanceof Game4Player) {
+                continue;
+            }
+
+            $returnedCards = $this->sendHandToDeck($playerToEmpty);
+            if ($returnedCards !== []) {
+                $logs[] = sprintf(
+                    'Les autres cartes de %s retournent dans le deck.',
+                    $playerToEmpty->getName()
+                );
+            }
+        }
+
         $this->finalizeDuel($duel, $winner, $logs);
 
         return true;
@@ -657,12 +722,35 @@ private function findBestNumericCardForPlayer(array $plays, Game4Player $player)
  * sauf ventuellement une carte "perdue" (vole / dtruite)
  * passe en paramtre.
  *
- * @param Game4DuelPlay[] $plays
- * @param Game4Card|null  $lost  Carte qui ne doit PAS tre rendue (ex : carte vole par le gagnant)
+ * @param Game4DuelPlay[]                $plays
+ * @param Game4Card|array<Game4Card>|null $lost  Carte(s) qui ne doivent PAS tre rendues
  */
-private function returnPlayedCardsToHands(array $plays, ?Game4Card $lost = null): void
+private function returnPlayedCardsToHands(array $plays, Game4Card|array|null $lost = null): void
 {
-    $lostId = $lost?->getId();
+    $lostIds  = [];
+    $lostHash = [];
+
+    if ($lost instanceof Game4Card) {
+        $id = $lost->getId();
+        if ($id !== null) {
+            $lostIds[$id] = true;
+        } else {
+            $lostHash[spl_object_hash($lost)] = true;
+        }
+    } elseif (\is_array($lost)) {
+        foreach ($lost as $card) {
+            if (!$card instanceof Game4Card) {
+                continue;
+            }
+
+            $id = $card->getId();
+            if ($id !== null) {
+                $lostIds[$id] = true;
+            } else {
+                $lostHash[spl_object_hash($card)] = true;
+            }
+        }
+    }
 
     foreach ($plays as $play) {
         if (!$play instanceof Game4DuelPlay) {
@@ -674,9 +762,17 @@ private function returnPlayedCardsToHands(array $plays, ?Game4Card $lost = null)
             continue;
         }
 
-        // Si c'est la carte "perdue" (vole/dtruite), on ne la touche pas ici
-        if ($lostId !== null && $card->getId() === $lostId) {
+        // Si c'est une carte "perdue" (vole/dtruite), on ne la touche pas ici
+        $cardId = $card->getId();
+        if ($cardId !== null && isset($lostIds[$cardId])) {
             continue;
+        }
+
+        if ($cardId === null) {
+            $hash = spl_object_hash($card);
+            if (isset($lostHash[$hash])) {
+                continue;
+            }
         }
 
         // Rgle : la carte joue mais non perdue revient dans la main de son propritaire
@@ -1135,6 +1231,28 @@ private function returnPlayedCardsToHands(array $plays, ?Game4Card $lost = null)
         }
 
         return $moved;
+    }
+
+    /**
+     * Replace les cartes d'un joueur dans la pioche principale.
+     *
+     * @return list<Game4Card>
+     */
+    private function sendHandToDeck(Game4Player $player): array
+    {
+        $returned = [];
+        $hand     = $this->cardRepo->findBy(['owner' => $player, 'zone' => Game4Card::ZONE_HAND]);
+
+        foreach ($hand as $card) {
+            if (!$card instanceof Game4Card) {
+                continue;
+            }
+
+            $card->setOwner(null)->setZone(Game4Card::ZONE_DECK);
+            $returned[] = $card;
+        }
+
+        return $returned;
     }
 
     private function giveSpecificCardTo(
