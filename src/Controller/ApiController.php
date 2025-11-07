@@ -1549,21 +1549,21 @@ $defs = [
             return null;
         }
 
-        if ($handCount === 0) {
-            $mandatory = null;
-            $role      = $player->getRole();
+        $role = $player->getRole();
+        $needsMandatory = null;
 
-            if ($role === Game4Player::ROLE_HUMAN) {
-                $mandatory = 'SHOTGUN';
-            } elseif ($role === Game4Player::ROLE_ZOMBIE) {
-                $mandatory = 'ZOMBIE';
+        if ($role === Game4Player::ROLE_HUMAN) {
+            if (!$this->cardRepo->handHasCode($player, 'SHOTGUN')) {
+                $needsMandatory = 'SHOTGUN';
             }
+        } elseif ($handCount === 0) {
+            $needsMandatory = 'ZOMBIE';
+        }
 
-            if ($mandatory) {
-                $card = $this->giveSpecificFromDeckOrForge($game, $player, $mandatory);
-                if ($card instanceof Game4Card) {
-                    return $card;
-                }
+        if ($needsMandatory) {
+            $card = $this->giveSpecificFromDeckOrForge($game, $player, $needsMandatory);
+            if ($card instanceof Game4Card) {
+                return $card;
             }
         }
 
