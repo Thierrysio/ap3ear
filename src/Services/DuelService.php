@@ -377,7 +377,8 @@ final class DuelService
                         }
                     }
 
-                    $givenCard = $this->giveSpecificCardTo('ZOMBIE', $game, $opponent, $em, $logs);
+                    $opponentLowestBefore = $this->getLowestNumericValue($opponent);
+                    $givenCard             = $this->giveSpecificCardTo('ZOMBIE', $game, $opponent, $em, $logs);
                     $logs[]    = sprintf('%s infecte %s qui devient zombie.', $actor->getName(), $opponent->getName());
                     $effects[] = ['type' => 'role', 'playerId' => $opponent->getId(), 'role' => Game4Player::ROLE_ZOMBIE];
 
@@ -395,7 +396,7 @@ final class DuelService
                     }
 
                     $handSnapshot = $this->collectHandSnapshot($opponent, $plays, $extraCards);
-                    foreach ($this->enforceHandLimit($opponent, $givenCard, handSnapshot: $handSnapshot) as $returned) {
+                    foreach ($this->enforceHandLimit($opponent, $givenCard, $opponentLowestBefore, $handSnapshot) as $returned) {
                         $this->appendHandLimitLog($opponent, $returned, $logs, $givenCard);
                     }
                 } else {
