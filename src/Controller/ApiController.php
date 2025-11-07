@@ -1381,6 +1381,109 @@ public function g4_duel_status(Request $req): JsonResponse
     ]);
 }
 
+#[Route('/api/mobile/duelForceResolve', name: 'g4_duel_force_resolve', methods: ['POST'])]
+public function g4_duel_force_resolve(Request $req): JsonResponse
+{
+    $data = json_decode($req->getContent(), true) ?? [];
+
+    $duelId   = (int)($data['duelId'] ?? 0);
+    $equipeId = (int)($data['equipeId'] ?? 0);
+
+    if ($duelId <= 0 || $equipeId <= 0) {
+        return $this->jsonOk([
+            'success' => false,
+            'message' => 'invalid_payload',
+            'errors'  => ['duelId', 'equipeId'],
+        ], Response::HTTP_BAD_REQUEST);
+    }
+
+    /** @var Game4Duel|null $duel */
+    $duel = $this->em->find(Game4Duel::class, $duelId);
+    if (!$duel) {
+        return $this->jsonOk([
+            'success'  => false,
+            'message'  => 'duel_not_found',
+            'resolved' => true,
+        ], Response::HTTP_NOT_FOUND);
+    }
+
+    $game = $duel->getGame();
+    if (!$game) {
+        return $this->jsonOk([
+            'success'  => false,
+            'message'  => 'game_not_found_for_duel',
+            'resolved' => true,
+        ], Response::HTTP_INTERNAL_SERVER_ERROR);
+    }
+
+    $player = $this->playerRepo->findOneByGameAndEquipe($game, $equipeId);
+    if (!$player) {
+        return $this->jsonOk([
+            'success'  => false,
+            'message'  => 'player_not_in_game',
+            'resolved' => false,
+        ], Response::HTTP_NOT_FOUND);
+    }
+
+    $playerId = $player->getId();
+    $playerA  = $duel->getPlayerA();
+    $playerB  = $duel->getPlayerB();
+
+    if (!$playerId || ($playerA?->getId() !== $playerId && $playerB?->getId() !== $playerId)) {
+        return $this->jsonOk([
+            'success'  => false,
+            'message'  => 'player_not_in_duel',
+            'resolved' => false,
+        ], Response::HTTP_FORBIDDEN);
+    }
+
+    $res = $this->duelService->forceResolve($duel, $this->em, $player);
+
+    $allPlays = $this->playRepo->findBy(
+        ['duel' => $duel],
+        ['roundIndex' => 'ASC', 'submittedAt' => 'ASC']
+    );
+
+    $playsView = array_map(function (Game4DuelPlay $p) {
+        return [
+            'playerId' => $p->getPlayer()->getId(),
+            'cardCode' => $p->getCardCode(),
+            'cardType' => $p->getCardType(),
+            'numValue' => $p->getCardType() === Game4DuelPlay::TYPE_NUM ? $p->getNumValue() : null,
+            'round'    => $p->getRoundIndex(),
+        ];
+    }, $allPlays);
+
+    $status   = $duel->getStatus();
+    $resolved = $status === Game4Duel::STATUS_RESOLVED;
+
+    $messageForYou = null;
+    if ($resolved) {
+        $messageForYou = $res->winnerId === null
+            ? 'Égalité.'
+            : ($res->winnerId === $playerId ? 'Vous avez gagné !' : 'Vous avez perdu...');
+    }
+
+    return $this->jsonOk([
+        'success'  => true,
+        'duelId'   => $duel->getId(),
+        'status'   => $status,
+        'resolved' => $resolved,
+        'message'  => 'force_resolve_triggered',
+        'result'   => [
+            'winnerId'      => $res->winnerId ?? null,
+            'messageForYou' => $messageForYou,
+            'logs'          => $res->logs ?? [],
+            'effects'       => $res->effects ?? [],
+            'wonCardCode'   => $res->wonCardCode ?? null,
+            'wonCardLabel'  => $res->wonCardLabel ?? null,
+            'pointsDelta'   => $res->pointsDelta ?? 0,
+        ],
+        'plays'    => $playsView,
+        'state'    => $this->buildG4State($game, $player),
+    ]);
+}
+
 
 
     // =====================================================================
