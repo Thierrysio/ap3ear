@@ -593,20 +593,6 @@ private function returnPlayedCardsToHands(array $plays, ?Game4Card $lost = null)
         $logs[] = sprintf('La main de %s depassait 7 cartes : %s retourne dans le deck.', $player->getName(), $returnedLabel ?? 'carte');
     }
 
-    private function appendHandLimitLog(Game4Player $player, Game4Card $returned, array &$logs, ?Game4Card $gained = null): void
-    {
-        $returnedDef   = $returned->getDef();
-        $returnedLabel = ($returnedDef instanceof Game4CardDef) ? ($returnedDef->getLabel() ?? $returnedDef->getCode()) : 'carte';
-
-        if ($gained instanceof Game4Card && $returned->getId() === $gained->getId()) {
-            $logs[] = sprintf('La main de %s depassait 7 cartes : la carte gagnee (%s) retourne dans le deck.', $player->getName(), $returnedLabel ?? 'carte');
-
-            return;
-        }
-
-        $logs[] = sprintf('La main de %s depassait 7 cartes : %s retourne dans le deck.', $player->getName(), $returnedLabel ?? 'carte');
-    }
-
     /**
      * @param array<int, Game4Card> $cards
      */
