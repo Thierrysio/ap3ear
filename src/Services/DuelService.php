@@ -331,6 +331,8 @@ final class DuelService
                         $logs[] = sprintf("%s n'avait aucune carte  offrir aprs la vaccination.", $opponent->getName());
                     }
 
+                    $this->replaceZombieCardWithShotgun($opponent, $game, $em, $logs);
+
                     $this->updateEliminationState($opponent, $logs, $effects);
                 } else {
                     if ($vaccineCard instanceof Game4Card) {
@@ -1044,6 +1046,44 @@ private function returnPlayedCardsToHands(array $plays, Game4Card|array|null $lo
         }
 
         return $newCards;
+    }
+
+    private function replaceZombieCardWithShotgun(
+        Game4Player $player,
+        Game4Game $game,
+        EntityManagerInterface $em,
+        array &$logs
+    ): ?Game4Card {
+        $handCards = $this->cardRepo->findBy(['owner' => $player, 'zone' => Game4Card::ZONE_HAND]);
+
+        foreach ($handCards as $card) {
+            if (!$card instanceof Game4Card) {
+                continue;
+            }
+
+            $def = $card->getDef();
+            if (!$def instanceof Game4CardDef) {
+                continue;
+            }
+
+            $code = strtoupper((string) $def->getCode());
+            $type = strtoupper((string) $def->getType());
+            if ($code !== Game4DuelPlay::TYPE_ZOMBIE && $type !== Game4DuelPlay::TYPE_ZOMBIE) {
+                continue;
+            }
+
+            [$zombieCode, $zombieLabel] = $this->describeCard($card);
+            $card->setOwner(null)->setZone(Game4Card::ZONE_DECK);
+            $logs[] = sprintf(
+                '%s rend sa carte ZOMBIE (%s) qui retourne dans le deck.',
+                $player->getName(),
+                $zombieLabel ?? $zombieCode ?? 'carte'
+            );
+
+            return $this->giveSpecificCardTo(Game4DuelPlay::TYPE_SHOTGUN, $game, $player, $em, $logs);
+        }
+
+        return null;
     }
 
     private function appendHandLimitLog(Game4Player $player, Game4Card $returned, array &$logs, ?Game4Card $gained = null): void
