@@ -380,12 +380,17 @@ final class DuelService
                     $logs[]    = sprintf('%s infecte %s qui devient zombie.', $actor->getName(), $opponent->getName());
                     $effects[] = ['type' => 'role', 'playerId' => $opponent->getId(), 'role' => Game4Player::ROLE_ZOMBIE];
 
+                    $replacementCards = $this->replaceHumanOnlyCardsForZombie($opponent, $game, $logs);
+
                     $extraCards = [];
                     if ($givenCard instanceof Game4Card) {
                         $extraCards[] = $givenCard;
                     }
                     if ($zombieCard instanceof Game4Card) {
                         $extraCards[] = $zombieCard;
+                    }
+                    foreach ($replacementCards as $replacementCard) {
+                        $extraCards[] = $replacementCard;
                     }
 
                     $handSnapshot = $this->collectHandSnapshot($opponent, $plays, $extraCards);
@@ -881,6 +886,66 @@ private function returnPlayedCardsToHands(array $plays, ?Game4Card $lost = null)
         }
 
         return $snapshot;
+    }
+
+    /**
+     * Remplace les cartes rserves aux humains (VACCINE, SHOTGUN) lorsque le joueur devient zombie.
+     *
+     * @return list<Game4Card> Cartes nouvellement ajoutes  la main du joueur.
+     */
+    private function replaceHumanOnlyCardsForZombie(Game4Player $player, Game4Game $game, array &$logs): array
+    {
+        $newCards    = [];
+        $humanOnly   = [];
+        $handCards   = $this->cardRepo->findBy(['owner' => $player, 'zone' => Game4Card::ZONE_HAND]);
+
+        foreach ($handCards as $card) {
+            if (!$card instanceof Game4Card) {
+                continue;
+            }
+
+            $def = $card->getDef();
+            if (!$def instanceof Game4CardDef) {
+                continue;
+            }
+
+            $type = strtoupper((string) $def->getType());
+            if (!\in_array($type, [Game4DuelPlay::TYPE_VACCINE, Game4DuelPlay::TYPE_SHOTGUN], true)) {
+                continue;
+            }
+
+            $humanOnly[] = $card;
+        }
+
+        foreach ($humanOnly as $card) {
+            [$code, $label] = $this->describeCard($card);
+            $card->setOwner(null)->setZone(Game4Card::ZONE_DECK);
+            $logs[] = sprintf(
+                '%s perd %s (%s) qui retourne dans le deck.',
+                $player->getName(),
+                $label ?? $code ?? 'carte',
+                strtoupper((string) $card->getDef()?->getType())
+            );
+
+            $replacement = $this->cardRepo->pickHighestNumericFromDeck($game);
+            if ($replacement instanceof Game4Card) {
+                $replacement->setOwner($player)->setZone(Game4Card::ZONE_HAND);
+                [$repCode, $repLabel] = $this->describeCard($replacement);
+                $logs[] = sprintf(
+                    '%s la remplace par %s.',
+                    $player->getName(),
+                    $repLabel ?? $repCode ?? 'une carte'
+                );
+                $newCards[] = $replacement;
+            } else {
+                $logs[] = sprintf(
+                    'Aucune carte numrique disponible pour remplacer %s.',
+                    $label ?? $code ?? 'cette carte'
+                );
+            }
+        }
+
+        return $newCards;
     }
 
     private function appendHandLimitLog(Game4Player $player, Game4Card $returned, array &$logs, ?Game4Card $gained = null): void
