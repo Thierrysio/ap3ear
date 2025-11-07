@@ -130,9 +130,10 @@ final class DuelService
                         $opponent->setIsAlive(false);
                     }
 
-                    $this->transferAllHand($opponent, $actor);
+                    $transferred = $this->transferAllHand($opponent, $actor);
+                    $handSnapshot = $this->collectHandSnapshot($actor, $plays, $transferred);
 
-                    foreach ($this->enforceHandLimit($actor) as $returned) {
+                    foreach ($this->enforceHandLimit($actor, handSnapshot: $handSnapshot) as $returned) {
                         $this->appendHandLimitLog($actor, $returned, $logs);
                     }
 
@@ -155,7 +156,8 @@ final class DuelService
                             'to'       => $actor->getId(),
                             'cardCode' => $def?->getCode(),
                         ];
-                        foreach ($this->enforceHandLimit($actor, $stolen, $winnerLowestBefore) as $returned) {
+                        $handSnapshot = $this->collectHandSnapshot($actor, $plays, $stolen ? [$stolen] : []);
+                        foreach ($this->enforceHandLimit($actor, $stolen, $winnerLowestBefore, $handSnapshot) as $returned) {
                             $this->appendHandLimitLog($actor, $returned, $logs, $stolen);
                         }
                         $result->wonCardCode  = $def?->getCode();
@@ -385,11 +387,13 @@ private function applyNumericResolution(
     // Toutes les cartes joues qui ne sont pas "perdues" (ici : la carte vole) reviennent en main
     $this->returnPlayedCardsToHands($plays, $stolen);
 
-    foreach ($this->enforceHandLimit($winner, $stolen, $winnerLowestBefore) as $returnedWinner) {
+    $winnerHandSnapshot = $this->collectHandSnapshot($winner, $plays, $stolen ? [$stolen] : []);
+    foreach ($this->enforceHandLimit($winner, $stolen, $winnerLowestBefore, $winnerHandSnapshot) as $returnedWinner) {
         $this->appendHandLimitLog($winner, $returnedWinner, $logs, $stolen);
     }
 
-    foreach ($this->enforceHandLimit($loser) as $returnedLoser) {
+    $loserHandSnapshot = $this->collectHandSnapshot($loser, $plays);
+    foreach ($this->enforceHandLimit($loser, handSnapshot: $loserHandSnapshot) as $returnedLoser) {
         $this->appendHandLimitLog($loser, $returnedLoser, $logs);
     }
 
@@ -517,16 +521,24 @@ private function returnPlayedCardsToHands(array $plays, ?Game4Card $lost = null)
     }
 
     /**
+     * @param array<int|string, Game4Card>|null $handSnapshot
+     *
      * @return list<Game4Card>
      */
-    private function enforceHandLimit(Game4Player $player, ?Game4Card $addedCard = null, ?int $previousLowest = null): array
+    private function enforceHandLimit(
+        Game4Player $player,
+        ?Game4Card $addedCard = null,
+        ?int $previousLowest = null,
+        ?array $handSnapshot = null
+    ): array
     {
         $returned    = [];
         $pendingGain = $addedCard;
 
-        while (true) {
-            $handCards = $this->cardRepo->findBy(['owner' => $player, 'zone' => Game4Card::ZONE_HAND]);
+        $handCards = $handSnapshot ?? $this->collectHandSnapshot($player);
 
+        while (true) {
+            
             if (count($handCards) <= self::MAX_HAND) {
                 break;
             }
@@ -569,6 +581,8 @@ private function returnPlayedCardsToHands(array $plays, ?Game4Card $lost = null)
             $cardToReturn->setOwner(null)->setZone(Game4Card::ZONE_DECK);
             $returned[] = $cardToReturn;
 
+            $this->removeFromSnapshot($handCards, $cardToReturn);
+
             if ($pendingGain instanceof Game4Card && $cardToReturn->getId() === $pendingGain->getId()) {
                 $pendingGain = null;
             }
@@ -577,6 +591,83 @@ private function returnPlayedCardsToHands(array $plays, ?Game4Card $lost = null)
         }
 
         return $returned;
+    }
+
+    /**
+     * @param array<int|string, Game4Card> $snapshot
+     */
+    private function removeFromSnapshot(array &$snapshot, Game4Card $card): void
+    {
+        $key = $card->getId();
+        if ($key !== null && isset($snapshot[$key])) {
+            unset($snapshot[$key]);
+
+            return;
+        }
+
+        $hash = spl_object_hash($card);
+        if (isset($snapshot[$hash])) {
+            unset($snapshot[$hash]);
+        }
+    }
+
+    /**
+     * @param array<int|string, Game4Card> $snapshot
+     */
+    private function addToSnapshot(array &$snapshot, Game4Card $card): void
+    {
+        $key = $card->getId();
+        if ($key === null) {
+            $key = spl_object_hash($card);
+        }
+
+        $snapshot[$key] = $card;
+    }
+
+    /**
+     * @param Game4DuelPlay[] $plays
+     * @param Game4Card[]     $extraCards
+     *
+     * @return array<int|string, Game4Card>
+     */
+    private function collectHandSnapshot(Game4Player $player, array $plays = [], array $extraCards = []): array
+    {
+        $snapshot = [];
+
+        foreach ($this->cardRepo->findBy(['owner' => $player, 'zone' => Game4Card::ZONE_HAND]) as $card) {
+            if ($card instanceof Game4Card) {
+                $this->addToSnapshot($snapshot, $card);
+            }
+        }
+
+        foreach ($plays as $play) {
+            if (!$play instanceof Game4DuelPlay) {
+                continue;
+            }
+
+            if ($play->getPlayer()?->getId() !== $player->getId()) {
+                continue;
+            }
+
+            $card = $play->getCard();
+            if ($card instanceof Game4Card && $card->getOwner()?->getId() === $player->getId() && $card->getZone() === Game4Card::ZONE_HAND) {
+                $this->addToSnapshot($snapshot, $card);
+            }
+        }
+
+        foreach ($extraCards as $card) {
+            if (!$card instanceof Game4Card) {
+                continue;
+            }
+
+            if ($card->getOwner()?->getId() !== $player->getId() || $card->getZone() !== Game4Card::ZONE_HAND) {
+                continue;
+            }
+
+            $this->addToSnapshot($snapshot, $card);
+        }
+
+        return $snapshot;
     }
 
     private function appendHandLimitLog(Game4Player $player, Game4Card $returned, array &$logs, ?Game4Card $gained = null): void
@@ -716,14 +807,23 @@ private function returnPlayedCardsToHands(array $plays, ?Game4Card $lost = null)
         return $last;
     }
 
-    private function transferAllHand(Game4Player $from, Game4Player $to): void
+    /**
+     * @return Game4Card[]
+     */
+    private function transferAllHand(Game4Player $from, Game4Player $to): array
     {
+        $moved  = [];
         $cards = $this->cardRepo->findBy(['owner' => $from, 'zone' => Game4Card::ZONE_HAND]);
         foreach ($cards as $card) {
-            if ($card instanceof Game4Card) {
-                $card->setOwner($to);
+            if (!$card instanceof Game4Card) {
+                continue;
             }
+
+            $card->setOwner($to);
+            $moved[] = $card;
         }
+
+        return $moved;
     }
 
     private function giveSpecificCardTo(
