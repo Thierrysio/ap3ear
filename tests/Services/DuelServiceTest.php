@@ -203,4 +203,102 @@ final class DuelServiceTest extends KernelTestCase
         self::assertNull($numericCards[1]->getOwner(), 'The lowest numeric card should return to the deck.');
         self::assertSame(Game4Card::ZONE_DECK, $numericCards[1]->getZone());
     }
+
+    public function testForceResolveCompletesNumericDuel(): void
+    {
+        $game = (new Game4Game())
+            ->setPhase(Game4Game::PHASE_RUNNING);
+        $this->em->persist($game);
+
+        $playerA = (new Game4Player())
+            ->setGame($game)
+            ->setEquipeId(2)
+            ->setName('Equipe 2')
+            ->setRole(Game4Player::ROLE_HUMAN);
+        $this->em->persist($playerA);
+
+        $playerB = (new Game4Player())
+            ->setGame($game)
+            ->setEquipeId(3)
+            ->setName('Equipe 3')
+            ->setRole(Game4Player::ROLE_HUMAN);
+        $this->em->persist($playerB);
+
+        $duel = (new Game4Duel())
+            ->setGame($game)
+            ->setPlayerA($playerA)
+            ->setPlayerB($playerB)
+            ->setStatus(Game4Duel::STATUS_PENDING);
+        $this->em->persist($duel);
+
+        $cards = [];
+        foreach ([['code' => 'NUM_08', 'label' => '8', 'value' => 8, 'owner' => $playerA], ['code' => 'NUM_04', 'label' => '4', 'value' => 4, 'owner' => $playerA], ['code' => 'NUM_07', 'label' => '7', 'value' => 7, 'owner' => $playerB], ['code' => 'NUM_03', 'label' => '3', 'value' => 3, 'owner' => $playerB]] as $data) {
+            $def = (new Game4CardDef())
+                ->setCode($data['code'])
+                ->setLabel($data['label'])
+                ->setType('NUM');
+            $this->em->persist($def);
+
+            $card = (new Game4Card())
+                ->setGame($game)
+                ->setDef($def)
+                ->setOwner($data['owner'])
+                ->setZone(Game4Card::ZONE_HAND)
+                ->setToken('token-'.$data['code']);
+            $this->em->persist($card);
+
+            $cards[$data['code']] = $card;
+        }
+
+        $round = 1;
+        foreach ([['player' => $playerA, 'card' => $cards['NUM_08'], 'value' => 8], ['player' => $playerB, 'card' => $cards['NUM_07'], 'value' => 7], ['player' => $playerA, 'card' => $cards['NUM_04'], 'value' => 4], ['player' => $playerB, 'card' => $cards['NUM_03'], 'value' => 3]] as $playData) {
+            $play = (new Game4DuelPlay())
+                ->setPlayer($playData['player'])
+                ->setCard($playData['card'])
+                ->setCardCode($playData['card']->getDef()->getCode())
+                ->setCardType(Game4DuelPlay::TYPE_NUM)
+                ->setNumValue($playData['value'])
+                ->setRoundIndex($round++);
+            $duel->addPlay($play);
+            $this->em->persist($play);
+        }
+
+        $this->em->flush();
+
+        $this->service->resolve($duel, $this->em);
+        self::assertSame(Game4Duel::STATUS_PENDING, $duel->getStatus(), 'The duel should still be pending before the forced resolution.');
+
+        $result = $this->service->forceResolve($duel, $this->em, $playerA);
+        $this->em->refresh($duel);
+
+        self::assertSame(Game4Duel::STATUS_RESOLVED, $duel->getStatus(), 'The duel must be resolved after forcing.');
+        self::assertSame($playerA->getId(), $duel->getWinner()?->getId(), 'Player A should win with the higher total.');
+        self::assertSame($playerA->getId(), $result->winnerId, 'The result should expose the winning player.');
+
+        $logs = $result->logs;
+        self::assertNotEmpty($logs, 'Logs should describe the forced resolution.');
+        self::assertTrue(
+            $this->containsLogLine($logs, 'Résolution forcée déclenchée par'),
+            'The forced resolution log line should be present.'
+        );
+
+        $stolenCard = $cards['NUM_07'];
+        $this->em->refresh($stolenCard);
+        self::assertSame($playerA->getId(), $stolenCard->getOwner()?->getId(), 'The winner should steal the best card from the opponent.');
+        self::assertSame(Game4Card::ZONE_HAND, $stolenCard->getZone(), 'The stolen card must end in the winner\'s hand.');
+    }
+
+    /**
+     * @param array<int, string> $logs
+     */
+    private function containsLogLine(array $logs, string $needle): bool
+    {
+        foreach ($logs as $line) {
+            if (str_contains($line, $needle)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
 }
