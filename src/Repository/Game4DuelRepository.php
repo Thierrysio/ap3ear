@@ -19,12 +19,12 @@ class Game4DuelRepository extends ServiceEntityRepository
     }
 
     // ------------------------------------------------------------------
-    // Sélecteurs de base (cohérents avec Game4Duel)
+    // SÃ©lecteurs de base (cohÃ©rents avec Game4Duel)
     // ------------------------------------------------------------------
 
     /**
      * Duel actif (PENDING) impliquant ce joueur (A ou B).
-     * Le plus récent est renvoyé si plusieurs existent (par sécurité).
+     * Le plus rÃ©cent est renvoyÃ© si plusieurs existent (par sÃ©curitÃ©).
      */
     public function findActiveForPlayer(Game4Player $p): ?Game4Duel
     {
@@ -37,7 +37,7 @@ class Game4DuelRepository extends ServiceEntityRepository
     }
 
     /**
-     * Duel actif (PENDING) entre A et B (quel que soit l’ordre).
+     * Duel actif (PENDING) entre A et B (quel que soit lâ€™ordre).
      */
     public function findActiveBetween(Game4Game $game, Game4Player $a, Game4Player $b): ?Game4Duel
     {
@@ -54,7 +54,7 @@ class Game4DuelRepository extends ServiceEntityRepository
 
     /**
      * Dernier duel entrant (PENDING) pour "me".
-     * Convention : "entrant" = le joueur est côté B (cible).
+     * Convention : "entrant" = le joueur est cÃ´tÃ© B (cible).
      */
     public function findLastIncomingFor(Game4Game $game, Game4Player $me): ?Game4Duel
     {
@@ -80,12 +80,42 @@ class Game4DuelRepository extends ServiceEntityRepository
             ->getQuery()->getResult();
     }
 
+    /**
+     * Indique si au moins un duel est actuellement en attente dans la partie.
+     */
+    public function hasPending(Game4Game $game): bool
+    {
+        $count = $this->createQueryBuilder('d')
+            ->select('COUNT(d.id)')
+            ->andWhere('d.game = :g')->setParameter('g', $game)
+            ->andWhere('d.status = :s')->setParameter('s', Game4Duel::STATUS_PENDING)
+            ->getQuery()
+            ->getSingleScalarResult();
+
+        return (int) $count > 0;
+    }
+
+    /**
+     * Dernier duel rsolu pour une partie donne.
+     */
+    public function findLastResolved(Game4Game $game): ?Game4Duel
+    {
+        return $this->createQueryBuilder('d')
+            ->andWhere('d.game = :g')->setParameter('g', $game)
+            ->andWhere('d.status = :s')->setParameter('s', Game4Duel::STATUS_RESOLVED)
+            ->andWhere('d.resolvedAt IS NOT NULL')
+            ->orderBy('d.resolvedAt', 'DESC')
+            ->setMaxResults(1)
+            ->getQuery()
+            ->getOneOrNullResult();
+    }
+
     // ------------------------------------------------------------------
-    // Utilitaires (création / résolution)
+    // Utilitaires (crÃ©ation / rÃ©solution)
     // ------------------------------------------------------------------
 
     /**
-     * Persiste un duel (sans flush par défaut).
+     * Persiste un duel (sans flush par dÃ©faut).
      */
     public function save(Game4Duel $duel, bool $flush = false): void
     {
@@ -97,8 +127,8 @@ class Game4DuelRepository extends ServiceEntityRepository
     }
 
     /**
-     * Marque un duel comme résolu, pose le vainqueur et les logs.
-     * (Sans flush par défaut : laisse au service appelant gérer la transaction.)
+     * Marque un duel comme rÃ©solu, pose le vainqueur et les logs.
+     * (Sans flush par dÃ©faut : laisse au service appelant gÃ©rer la transaction.)
      */
     public function resolve(Game4Duel $duel, ?int $winnerId, array $logLines = [], bool $flush = false): void
     {

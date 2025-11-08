@@ -63,6 +63,8 @@ final class ApiController extends AbstractController
     private const G4_SPECIAL_TYPES = ['ZOMBIE', 'VACCINE', 'SHOTGUN'];
     /** Nombre max de cartes en main */
     private const G4_MAX_HAND = 7;
+    /** Cooldown (en secondes) entre deux duels */
+    private const G4_DUEL_COOLDOWN_SECONDS = 600;
 
 
     public function __construct(
@@ -1497,6 +1499,15 @@ private function buildG4State(Game4Game $game, ?Game4Player $me, ?string $server
     $now = new \DateTimeImmutable();
     $timeLeft = $game->getEndsAt() ? max(0, $game->getEndsAt()->getTimestamp() - $now->getTimestamp()) : 0;
 
+    $cooldownLeft = 0;
+    if (!$this->duelRepo->hasPending($game)) {
+        $lastResolved = $this->duelRepo->findLastResolved($game);
+        if ($lastResolved && $lastResolved->getResolvedAt()) {
+            $elapsed = max(0, $now->getTimestamp() - $lastResolved->getResolvedAt()->getTimestamp());
+            $cooldownLeft = max(0, self::G4_DUEL_COOLDOWN_SECONDS - $elapsed);
+        }
+    }
+
     $players = [];
     foreach ($this->playerRepo->findAliveByGame($game) as $p) {
         $players[] = [
@@ -1577,6 +1588,7 @@ private function buildG4State(Game4Game $game, ?Game4Player $me, ?string $server
         'drawCount'     => $game->getDrawCount(),
         'discardCount'  => $game->getDiscardCount(),
         'incomingDuel'  => $incoming,
+        'duelCooldownSec' => $cooldownLeft,
         'serverMessage' => $serverMsg,
     ];
 }
