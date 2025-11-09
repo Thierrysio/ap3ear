@@ -13,21 +13,21 @@ use Doctrine\ORM\Mapping as ORM;
 #[ORM\Index(name: 'idx_g4duel_game_status', columns: ['game_id', 'status'])]
 #[ORM\Index(name: 'idx_g4duel_game_playerA', columns: ['game_id', 'player_a_id'])]
 #[ORM\Index(name: 'idx_g4duel_game_playerB', columns: ['game_id', 'player_b_id'])]
-# -- Unicités (limitées par statut)
-# Un seul duel PENDING pour une paire (A,B) donnée dans un jeu
+# -- UnicitÃ©s (limitÃ©es par statut)
+# Un seul duel PENDING pour une paire (A,B) donnÃ©e dans un jeu
 #[ORM\UniqueConstraint(
     name: 'uniq_g4duel_pair_pending',
-    columns: ['game_id', 'player_a_id', 'player_b_id', 'status']
+    columns: ['game_id', 'player_a_id', 'player_b_id', 'pending_flag']
 )]
-# Un seul duel PENDING impliquant A (quel que soit l’adversaire) dans un jeu
+# Un seul duel PENDING impliquant A (quel que soit lÂ’adversaire) dans un jeu
 #[ORM\UniqueConstraint(
     name: 'uniq_duel_playerA_pending',
-    columns: ['game_id', 'player_a_id', 'status']
+    columns: ['game_id', 'player_a_id', 'pending_flag']
 )]
-# Un seul duel PENDING impliquant B (quel que soit l’adversaire) dans un jeu
+# Un seul duel PENDING impliquant B (quel que soit lÂ’adversaire) dans un jeu
 #[ORM\UniqueConstraint(
     name: 'uniq_duel_playerB_pending',
-    columns: ['game_id', 'player_b_id', 'status']
+    columns: ['game_id', 'player_b_id', 'pending_flag']
 )]
 class Game4Duel
 {
@@ -54,10 +54,13 @@ class Game4Duel
     #[ORM\Column(type: 'string', length: 16)]
     private string $status = self::STATUS_PENDING;
 
+    #[ORM\Column(name: 'pending_flag', type: 'boolean', nullable: true, options: ['default' => true])]
+    private ?bool $pendingFlag = true;
+
     #[ORM\Column(type: 'integer', options: ['default' => 0])]
     private int $roundIndex = 0;
 
-    // Relation plutôt qu’un int brut (gagnant nullable en cas d’égalité)
+    // Relation plutÃ´t quÂ’un int brut (gagnant nullable en cas dÂ’Ã©galitÃ©)
     #[ORM\ManyToOne(targetEntity: Game4Player::class)]
     #[ORM\JoinColumn(name: 'winner_id', referencedColumnName: 'id', nullable: true, onDelete: 'SET NULL')]
     private ?Game4Player $winner = null;
@@ -68,7 +71,7 @@ class Game4Duel
     #[ORM\Column(type: 'datetime_immutable', name: 'resolved_at', nullable: true)]
     private ?\DateTimeImmutable $resolvedAt = null;
 
-    // Stockage simple : lignes séparées par \n
+    // Stockage simple : lignes sÃ©parÃ©es par \n
     #[ORM\Column(type: 'text', nullable: true)]
     private ?string $logs = null;
 
@@ -130,6 +133,18 @@ class Game4Duel
     public function setStatus(string $status): self
     {
         $this->status = $status;
+        $this->pendingFlag = ($status === self::STATUS_PENDING) ? true : null;
+        return $this;
+    }
+
+    public function getPendingFlag(): ?bool
+    {
+        return $this->pendingFlag;
+    }
+
+    public function setPendingFlag(?bool $pendingFlag): self
+    {
+        $this->pendingFlag = $pendingFlag;
         return $this;
     }
 
@@ -217,7 +232,7 @@ class Game4Duel
     public function removePlay(Game4DuelPlay $play): self
     {
         // Avec orphanRemoval=true et cascade remove,
-        // retirer de la collection suffit à provoquer la suppression.
+        // retirer de la collection suffit Ã  provoquer la suppression.
         $this->plays->removeElement($play);
         return $this;
     }
@@ -243,8 +258,8 @@ class Game4Duel
     }
 
     /**
-     * Normalise l’ordre (A,B) pour limiter les doublons :
-     * A = joueur avec l’ID le plus petit.
+     * Normalise lÂ’ordre (A,B) pour limiter les doublons :
+     * A = joueur avec lÂ’ID le plus petit.
      */
     public function setPairNormalized(Game4Player $p1, Game4Player $p2): self
     {
@@ -258,10 +273,10 @@ class Game4Duel
         return $this;
     }
 
-    /** Marque le duel comme résolu, fixe gagnant + date + logs */
+    /** Marque le duel comme rÃ©solu, fixe gagnant + date + logs */
     public function markResolved(?Game4Player $winner, array $logs = []): self
     {
-        $this->status = self::STATUS_RESOLVED;
+        $this->setStatus(self::STATUS_RESOLVED);
         $this->winner = $winner;
         $this->resolvedAt = new \DateTimeImmutable();
         if ($logs) {
