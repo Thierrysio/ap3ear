@@ -288,6 +288,84 @@ final class DuelServiceTest extends KernelTestCase
         self::assertSame(Game4Card::ZONE_HAND, $stolenCard->getZone(), 'The stolen card must end in the winner\'s hand.');
     }
 
+    public function testResolveHandlesLowercaseNumericTypes(): void
+    {
+        $game = (new Game4Game())
+            ->setPhase(Game4Game::PHASE_RUNNING);
+        $this->em->persist($game);
+
+        $playerA = (new Game4Player())
+            ->setGame($game)
+            ->setEquipeId(4)
+            ->setName('Equipe 4')
+            ->setRole(Game4Player::ROLE_HUMAN);
+        $this->em->persist($playerA);
+
+        $playerB = (new Game4Player())
+            ->setGame($game)
+            ->setEquipeId(5)
+            ->setName('Equipe 5')
+            ->setRole(Game4Player::ROLE_HUMAN);
+        $this->em->persist($playerB);
+
+        $duel = (new Game4Duel())
+            ->setGame($game)
+            ->setPlayerA($playerA)
+            ->setPlayerB($playerB)
+            ->setStatus(Game4Duel::STATUS_PENDING);
+        $this->em->persist($duel);
+
+        $playsData = [
+            ['player' => $playerA, 'code' => 'NUM_06', 'value' => 6],
+            ['player' => $playerB, 'code' => 'NUM_05', 'value' => 5],
+            ['player' => $playerA, 'code' => 'NUM_04', 'value' => 4],
+            ['player' => $playerB, 'code' => 'NUM_03', 'value' => 3],
+            ['player' => $playerA, 'code' => 'NUM_02', 'value' => 2],
+            ['player' => $playerB, 'code' => 'NUM_02B', 'value' => 2],
+            ['player' => $playerA, 'code' => 'NUM_01', 'value' => 1],
+            ['player' => $playerB, 'code' => 'NUM_01B', 'value' => 1],
+        ];
+
+        $round = 1;
+        $cardTypeProperty = new \ReflectionProperty(Game4DuelPlay::class, 'cardType');
+        $cardTypeProperty->setAccessible(true);
+
+        foreach ($playsData as $data) {
+            $def = (new Game4CardDef())
+                ->setCode($data['code'])
+                ->setLabel($data['code'])
+                ->setType('num');
+            $this->em->persist($def);
+
+            $card = (new Game4Card())
+                ->setGame($game)
+                ->setDef($def)
+                ->setOwner($data['player'])
+                ->setZone(Game4Card::ZONE_HAND)
+                ->setToken('token-'.$data['code']);
+            $this->em->persist($card);
+
+            $play = (new Game4DuelPlay())
+                ->setPlayer($data['player'])
+                ->setCard($card)
+                ->setCardCode($def->getCode())
+                ->setCardType('num')
+                ->setNumValue($data['value'])
+                ->setRoundIndex($round++);
+            $cardTypeProperty->setValue($play, 'num');
+            $duel->addPlay($play);
+            $this->em->persist($play);
+        }
+
+        $this->em->flush();
+
+        $this->service->resolve($duel, $this->em);
+        $this->em->refresh($duel);
+
+        self::assertSame(Game4Duel::STATUS_RESOLVED, $duel->getStatus(), 'The duel should resolve even when card types are lowercase.');
+        self::assertSame($playerA->getId(), $duel->getWinner()?->getId(), 'Player A should win with the higher total of numeric cards.');
+    }
+
     /**
      * @param array<int, string> $logs
      */

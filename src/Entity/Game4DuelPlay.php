@@ -33,12 +33,12 @@ class Game4DuelPlay
     #[ORM\JoinColumn(name: 'player_id', referencedColumnName: 'id', nullable: false, onDelete: 'CASCADE')]
     private ?Game4Player $player = null;
 
-    // Lien conservé pour audit ; peut devenir NULL après défausse / déplacement
+    // Lien conservÃ© pour audit ; peut devenir NULL aprÃ¨s dÃ©fausse / dÃ©placement
     #[ORM\ManyToOne(targetEntity: Game4Card::class)]
     #[ORM\JoinColumn(name: 'card_id', referencedColumnName: 'id', nullable: true, onDelete: 'SET NULL')]
     private ?Game4Card $card = null;
 
-    // Code lisible côté client (ex: "NUM_5", "ZOMBIE", "SHOTGUN", "VACCINE")
+    // Code lisible cÃ´tÃ© client (ex: "NUM_5", "ZOMBIE", "SHOTGUN", "VACCINE")
     #[ORM\Column(type: 'string', length: 64)]
     private string $cardCode;
 
@@ -46,11 +46,13 @@ class Game4DuelPlay
     #[ORM\Column(type: 'string', length: 16, name: 'card_type')]
     private string $cardType;
 
-    // Valeur pour NUM (sinon NULL pour les spéciales)
-    #[ORM\Column(type: 'integer', nullable: true, name: 'num_value')]
+        $type = strtoupper($this->cardType);
+
+        return \in_array($type, [self::TYPE_ZOMBIE, self::TYPE_SHOTGUN, self::TYPE_VACCINE], true);
+        return strtoupper($this->cardType) === self::TYPE_NUM;
     private ?int $numValue = null;
 
-    // Manche : 1..N (bornage métier côté service/contrôleur)
+    // Manche : 1..N (bornage mÃ©tier cÃ´tÃ© service/contrÃ´leur)
     #[ORM\Column(type: 'integer', name: 'round_index')]
     private int $roundIndex = 1;
 
@@ -62,7 +64,7 @@ class Game4DuelPlay
         $this->submittedAt = new \DateTimeImmutable();
     }
 
-    // ===== Helpers métier =====
+    // ===== Helpers mÃ©tier =====
     public function isSpecial(): bool
     {
         return \in_array($this->cardType, [self::TYPE_ZOMBIE, self::TYPE_SHOTGUN, self::TYPE_VACCINE], true);
@@ -130,7 +132,8 @@ class Game4DuelPlay
 
     public function setCardType(string $cardType): self
     {
-        $this->cardType = $cardType;
+        $this->cardType = strtoupper(trim($cardType));
+
         return $this;
     }
 
