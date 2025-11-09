@@ -46,10 +46,7 @@ class Game4DuelPlay
     #[ORM\Column(type: 'string', length: 16, name: 'card_type')]
     private string $cardType;
 
-        $type = strtoupper($this->cardType);
-
-        return \in_array($type, [self::TYPE_ZOMBIE, self::TYPE_SHOTGUN, self::TYPE_VACCINE], true);
-        return strtoupper($this->cardType) === self::TYPE_NUM;
+    #[ORM\Column(type: 'integer', name: 'num_value', nullable: true)]
     private ?int $numValue = null;
 
     // Manche : 1..N (bornage métier côté service/contrôleur)
