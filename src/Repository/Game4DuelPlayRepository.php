@@ -19,7 +19,7 @@ class Game4DuelPlayRepository extends ServiceEntityRepository
     }
 
     // ------------------------------------------------------------------
-    // Sélecteurs de base
+    // SÃ©lecteurs de base
     // ------------------------------------------------------------------
 
     public function findOneByDuelAndPlayer(Game4Duel $duel, Game4Player $player): ?Game4DuelPlay
@@ -39,17 +39,17 @@ class Game4DuelPlayRepository extends ServiceEntityRepository
     /** @return Game4DuelPlay[] */
     public function findByDuel(Game4Duel $duel): array
     {
-        // alias de findAllByDuel pour rétro-compat
+        // alias de findAllByDuel pour rÃ©tro-compat
         return $this->findAllByDuel($duel);
     }
 
     // ------------------------------------------------------------------
-    // Utilitaires “duel”
+    // Utilitaires duel
     // ------------------------------------------------------------------
 
     /**
-     * Upsert: crée ou met à jour le play d’un joueur pour un duel.
-     * Ne flush PAS (laisse le service appelant gérer la transaction).
+     * Upsert: crÃ©e ou met Ã  jour le play d'un joueur pour un duel.
+     * Ne flush PAS (laisse le service appelant gÃ©rer la transaction).
      */
     public function upsertPlay(
         Game4Duel $duel,
@@ -68,7 +68,7 @@ class Game4DuelPlayRepository extends ServiceEntityRepository
             $play->setDuel($duel)->setPlayer($player);
         }
 
-        // card (relation) est gérée au service si besoin; ici on stocke le snapshot code/type
+        // card (relation) est gÃ©rÃ©e au service si besoin; ici on stocke le snapshot code/type
         $play->setCardCode((string)$cardCode);
         $play->setCardType((string)$cardType);
         $play->setSubmittedAt($submittedAt);
@@ -81,7 +81,7 @@ class Game4DuelPlayRepository extends ServiceEntityRepository
 
     /**
      * Renvoie les deux plays (joueur A et B) si disponibles.
-     * @return Game4DuelPlay[] tableau 0..2 ordonné par submittedAt
+     * @return Game4DuelPlay[] tableau 0..2 ordonnÃ© par submittedAt
      */
     public function getBothPlays(Game4Duel $duel): array
     {
@@ -92,7 +92,7 @@ class Game4DuelPlayRepository extends ServiceEntityRepository
     }
 
     /**
-     * True si les 2 joueurs ont déjà soumis.
+     * True si les 2 joueurs ont dÃ©jÃ  soumis.
      */
     public function hasBothPlays(Game4Duel $duel): bool
     {
@@ -104,8 +104,19 @@ class Game4DuelPlayRepository extends ServiceEntityRepository
         return $count >= 2;
     }
 
+    public function countNumericByDuelAndPlayer(Game4Duel $duel, Game4Player $player): int
+    {
+        return (int) $this->createQueryBuilder('p')
+            ->select('COUNT(p.id)')
+            ->andWhere('p.duel = :duel')->setParameter('duel', $duel)
+            ->andWhere('p.player = :player')->setParameter('player', $player)
+            ->andWhere('p.cardType = :type')->setParameter('type', Game4DuelPlay::TYPE_NUM)
+            ->getQuery()
+            ->getSingleScalarResult();
+    }
+
     /**
-     * Supprime tous les plays d’un duel (utile si recompute).
+     * Supprime tous les plays d'un duel (utile si recompute).
      * Ne flush PAS.
      */
     public function deleteByDuel(Game4Duel $duel): void
