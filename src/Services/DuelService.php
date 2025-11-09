@@ -612,7 +612,7 @@ final class DuelService
             if (!$play instanceof Game4DuelPlay) {
                 continue;
             }
-            if ($play->getCardType() !== Game4DuelPlay::TYPE_NUM) {
+            if (!$play->isNum()) {
                 continue;
             }
 
@@ -787,7 +787,7 @@ private function findBestNumericCardForPlayer(array $plays, Game4Player $player)
         if ($play->getPlayer()?->getId() !== $player->getId()) {
             continue;
         }
-        if ($play->getCardType() !== Game4DuelPlay::TYPE_NUM) {
+        if (!$play->isNum()) {
             continue;
         }
 
@@ -891,7 +891,7 @@ private function returnPlayedCardsToHands(array $plays, Game4Card|array|null $lo
 
     private function valueFromPlay(Game4DuelPlay $play): int
     {
-        if ($play->getCardType() !== Game4DuelPlay::TYPE_NUM) {
+        if (!$play->isNum()) {
             return 0;
         }
 
@@ -1286,7 +1286,7 @@ private function returnPlayedCardsToHands(array $plays, Game4Card|array|null $lo
 
         $plays = $this->playRepo->findBy(['duel' => $duel, 'player' => $loser]);
         foreach ($plays as $play) {
-            if (!$play instanceof Game4DuelPlay || $play->getCardType() !== Game4DuelPlay::TYPE_NUM) {
+            if (!$play instanceof Game4DuelPlay || !$play->isNum()) {
                 continue;
             }
 
