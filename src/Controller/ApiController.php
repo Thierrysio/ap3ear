@@ -1138,17 +1138,11 @@ public function g4_duel_submit(Request $req): JsonResponse
     }
 
     // Compter combien de cartes ce joueur a déjà jouées dans ce duel
-    $myPlaysCount = $this->playRepo->count([
+    $myTotalPlays   = $this->playRepo->count([
         'duel'   => $duel,
         'player' => $player,
     ]);
-    if ($myPlaysCount >= 4) {
-        return $this->jsonOk([
-            'success'  => false,
-            'message'  => 'max_rounds_reached_for_player',
-            'resolved' => false,
-        ], Response::HTTP_CONFLICT);
-    }
+    $myNumericCount = $this->playRepo->countNumericByDuelAndPlayer($duel, $player);
 
     // Récupérer la carte en main via son token
     /** @var Game4Card|null $card */
@@ -1175,6 +1169,14 @@ public function g4_duel_submit(Request $req): JsonResponse
         ], Response::HTTP_NOT_FOUND);
     }
 
+    if ($def->getType() === Game4DuelPlay::TYPE_NUM && $myNumericCount >= 4) {
+        return $this->jsonOk([
+            'success'  => false,
+            'message'  => 'max_rounds_reached_for_player',
+            'resolved' => false,
+        ], Response::HTTP_CONFLICT);
+    }
+
     // Création du play pour ce duel
     $play = new Game4DuelPlay();
     $play
@@ -1184,7 +1186,7 @@ public function g4_duel_submit(Request $req): JsonResponse
         ->setCardCode($def->getCode())
         ->setCardType($def->getType())
         ->setNumValue($this->extractNumValueFromDef($def))
-        ->setRoundIndex($myPlaysCount + 1)
+        ->setRoundIndex($myTotalPlays + 1)
         ->setSubmittedAt(new \DateTimeImmutable());
 
     // La carte quitte la main ? défausse
@@ -1213,16 +1215,10 @@ public function g4_duel_submit(Request $req): JsonResponse
         ];
     }, $allPlays);
 
-    // Recompte des coups pour info
-    $myCount  = 0;
-    $oppCount = 0;
-    foreach ($allPlays as $p) {
-        if ($p->getPlayer()->getId() === $player->getId()) {
-            $myCount++;
-        } elseif ($p->getPlayer()->getId() === $opponent->getId()) {
-            $oppCount++;
-        }
-    }
+    // Recompte des cartes numériques jouées pour informer le client
+    $myCount       = $this->playRepo->countNumericByDuelAndPlayer($duel, $player);
+    $oppCount      = $this->playRepo->countNumericByDuelAndPlayer($duel, $opponent);
+    $canPlayMore   = $myCount < 4;
 
     // Si le service a résolu le duel, on renvoie le résultat complet
     if ($duel->getStatus() === Game4Duel::STATUS_RESOLVED) {
@@ -1259,7 +1255,7 @@ public function g4_duel_submit(Request $req): JsonResponse
         'youHaveSubmitted'   => true,
         'myPlaysCount'       => $myCount,
         'opponentPlaysCount' => $oppCount,
-        'canPlayMore'        => $myCount < 4,
+        'canPlayMore'        => $canPlayMore,
         'plays'              => $playsView,
         'state'              => $this->buildG4State($duel->getGame(), $player),
     ]);
