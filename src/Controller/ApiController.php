@@ -253,6 +253,29 @@ final class ApiController extends AbstractController
         return $response->GetJsonResponse($request, $var, $tab);
     }
 
+    #[Route('/api/mobile/getLesEquipes', name: 'api_mobile_get_les_equipes', methods: ['GET'])]
+    public function getLesEquipes(
+        Request $request,
+        TEquipeRepository $equipeRepository
+    ): JsonResponse {
+        $equipes = $equipeRepository->createQueryBuilder('e')
+            ->leftJoin('e.lesUsers', 'u')
+            ->addSelect('u')
+            ->orderBy('e.nom', 'ASC')
+            ->addOrderBy('u.nom', 'ASC')
+            ->addOrderBy('u.prenom', 'ASC')
+            ->getQuery()
+            ->getResult();
+
+        $utils = new Utils();
+
+        return $utils->GetJsonResponse($request, $equipes, [
+            'lesUsers.password',
+            'lesUsers.roles',
+            'lestScores',
+        ]);
+    }
+
     // ---------------------------------------------------------------------
     // SET SCORE
     // ---------------------------------------------------------------------
