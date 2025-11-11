@@ -369,7 +369,17 @@ final class ApiController extends AbstractController
         $manche     = (int) $data['Manche'];
         $equipeId   = (int) $data['EquipeId'];
         $choixIndex = (int) $data['ChoixIndex'];
-        $gagnant    = (string) $data['Gagnant'];
+
+        $gagnantRaw  = $data['Gagnant'];
+        if (is_string($gagnantRaw)) {
+            $gagnantRaw = trim($gagnantRaw);
+        }
+        $gagnantBool = filter_var($gagnantRaw, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
+        if ($gagnantBool === null) {
+            $gagnant = (string) $gagnantRaw;
+        } else {
+            $gagnant = $gagnantBool ? 'True' : 'False';
+        }
 
         if ($manche <= 0 || $equipeId <= 0) {
             return $this->jsonOk(false, Response::HTTP_BAD_REQUEST);
