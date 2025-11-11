@@ -224,6 +224,7 @@ final class DuelService
         $winner      = $actor;
         $stolen      = null;
         $cardsToSkipReturn = [];
+        /** @var array<int, array{player: Game4Player, exclude: list<Game4Card>}> $handsToDeck */
         $handsToDeck       = [];
 
         $type = strtoupper((string) $specialPlay->getCardType());
@@ -384,7 +385,10 @@ final class DuelService
                         $result->wonCardLabel = null;
                     }
 
-                    $handsToDeck[] = $opponent;
+                    $handsToDeck[] = [
+                        'player'  => $opponent,
+                        'exclude' => $stolen instanceof Game4Card ? [$stolen] : [],
+                    ];
                 } else {
                     $logs[] = "SHOTGUN jou mais l'adversaire n'est pas une cible valide.";
                 }
@@ -571,12 +575,19 @@ final class DuelService
 
         $this->returnPlayedCardsToHands($plays, $cardsToSkipReturn);
 
-        foreach ($handsToDeck as $playerToEmpty) {
+        foreach ($handsToDeck as $entry) {
+            $playerToEmpty = $entry['player'] ?? null;
             if (!$playerToEmpty instanceof Game4Player) {
                 continue;
             }
 
-            $returnedCards = $this->sendHandToDeck($playerToEmpty);
+            $exclude = $entry['exclude'] ?? [];
+
+            if (!\is_array($exclude)) {
+                $exclude = [];
+            }
+
+            $returnedCards = $this->sendHandToDeck($playerToEmpty, $exclude);
             if ($returnedCards !== []) {
                 $logs[] = sprintf(
                     'Les autres cartes de %s retournent dans le deck.',
@@ -1381,16 +1392,46 @@ private function returnPlayedCardsToHands(array $plays, Game4Card|array|null $lo
     /**
      * Replace les cartes d'un joueur dans la pioche principale.
      *
+     * @param list<Game4Card> $exclude
+     *
      * @return list<Game4Card>
      */
-    private function sendHandToDeck(Game4Player $player): array
+    private function sendHandToDeck(Game4Player $player, array $exclude = []): array
     {
         $returned = [];
         $hand     = $this->cardRepo->findBy(['owner' => $player, 'zone' => Game4Card::ZONE_HAND]);
 
+        $excludedIds = [];
+        $excludedHash = [];
+
+        foreach ($exclude as $card) {
+            if (!$card instanceof Game4Card) {
+                continue;
+            }
+
+            $id = $card->getId();
+            if ($id !== null) {
+                $excludedIds[$id] = true;
+            } else {
+                $excludedHash[spl_object_hash($card)] = true;
+            }
+        }
+
         foreach ($hand as $card) {
             if (!$card instanceof Game4Card) {
                 continue;
+            }
+
+            $cardId = $card->getId();
+            if ($cardId !== null && isset($excludedIds[$cardId])) {
+                continue;
+            }
+
+            if ($cardId === null) {
+                $hash = spl_object_hash($card);
+                if (isset($excludedHash[$hash])) {
+                    continue;
+                }
             }
 
             $card->setOwner(null)->setZone(Game4Card::ZONE_DECK);

@@ -204,6 +204,129 @@ final class DuelServiceTest extends KernelTestCase
         self::assertSame(Game4Card::ZONE_DECK, $numericCards[1]->getZone());
     }
 
+    public function testShotgunVsZombieTransfersHighestCardToHumanAndEmptiesHand(): void
+    {
+        $game = (new Game4Game())
+            ->setPhase(Game4Game::PHASE_RUNNING);
+        $this->em->persist($game);
+
+        $human = (new Game4Player())
+            ->setGame($game)
+            ->setEquipeId(10)
+            ->setName('Human Team')
+            ->setRole(Game4Player::ROLE_HUMAN);
+        $this->em->persist($human);
+
+        $zombie = (new Game4Player())
+            ->setGame($game)
+            ->setEquipeId(11)
+            ->setName('Zombie Team')
+            ->setRole(Game4Player::ROLE_ZOMBIE);
+        $this->em->persist($zombie);
+
+        $duel = (new Game4Duel())
+            ->setGame($game)
+            ->setPlayerA($human)
+            ->setPlayerB($zombie)
+            ->setStatus(Game4Duel::STATUS_PENDING);
+        $this->em->persist($duel);
+
+        $shotgunDef = (new Game4CardDef())
+            ->setCode('SHOTGUN')
+            ->setLabel('Shotgun')
+            ->setType('SHOTGUN');
+        $this->em->persist($shotgunDef);
+
+        $shotgunCard = (new Game4Card())
+            ->setGame($game)
+            ->setDef($shotgunDef)
+            ->setOwner($human)
+            ->setZone(Game4Card::ZONE_HAND)
+            ->setToken('shotgun-token');
+        $this->em->persist($shotgunCard);
+
+        $zombieCards = [];
+        foreach ([[5, 'NUM_05'], [9, 'NUM_09']] as [$value, $code]) {
+            $def = (new Game4CardDef())
+                ->setCode($code)
+                ->setLabel((string) $value)
+                ->setType('NUM');
+            $this->em->persist($def);
+
+            $card = (new Game4Card())
+                ->setGame($game)
+                ->setDef($def)
+                ->setOwner($zombie)
+                ->setZone(Game4Card::ZONE_HAND)
+                ->setToken(sprintf('zombie-num-%d', $value));
+            $this->em->persist($card);
+
+            $zombieCards[$value] = $card;
+        }
+
+        $round = 1;
+        foreach ([[5, $zombieCards[5]], [9, $zombieCards[9]]] as [$value, $card]) {
+            $play = (new Game4DuelPlay())
+                ->setDuel($duel)
+                ->setPlayer($zombie)
+                ->setCard($card)
+                ->setCardCode($card->getDef()->getCode())
+                ->setCardType(Game4DuelPlay::TYPE_NUM)
+                ->setNumValue($value)
+                ->setRoundIndex($round++);
+            $duel->addPlay($play);
+            $this->em->persist($play);
+        }
+
+        $shotgunPlay = (new Game4DuelPlay())
+            ->setDuel($duel)
+            ->setPlayer($human)
+            ->setCard($shotgunCard)
+            ->setCardCode('SHOTGUN')
+            ->setCardType(Game4DuelPlay::TYPE_SHOTGUN)
+            ->setRoundIndex($round);
+        $duel->addPlay($shotgunPlay);
+        $this->em->persist($shotgunPlay);
+
+        $this->em->flush();
+
+        $result = $this->service->resolve($duel, $this->em);
+
+        $this->em->refresh($human);
+        $this->em->refresh($zombie);
+        $this->em->refresh($zombieCards[9]);
+        $this->em->refresh($zombieCards[5]);
+
+        self::assertTrue($zombie->isEliminated(), 'The zombie must be eliminated by the shotgun.');
+        self::assertSame(
+            $human->getId(),
+            $zombieCards[9]->getOwner()?->getId(),
+            'The highest posted card should be transferred to the human.'
+        );
+        self::assertSame(
+            Game4Card::ZONE_HAND,
+            $zombieCards[9]->getZone(),
+            'The stolen card should remain in the human hand.'
+        );
+        self::assertNull(
+            $zombieCards[5]->getOwner(),
+            'Other zombie cards must return to the deck.'
+        );
+        self::assertSame(
+            Game4Card::ZONE_DECK,
+            $zombieCards[5]->getZone(),
+            'Returned cards should be moved to the deck.'
+        );
+
+        $zombieHand = $this->em->getRepository(Game4Card::class)->findBy([
+            'owner' => $zombie,
+            'zone'  => Game4Card::ZONE_HAND,
+        ]);
+        self::assertSame(0, \count($zombieHand), 'The eliminated zombie should no longer hold any card.');
+
+        self::assertSame('NUM_09', $result->wonCardCode, 'The result should expose the stolen card code.');
+    }
+
     public function testForceResolveCompletesNumericDuel(): void
     {
         $game = (new Game4Game())
