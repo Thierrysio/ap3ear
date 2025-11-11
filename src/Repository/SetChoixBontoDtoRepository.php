@@ -21,7 +21,7 @@ class SetChoixBontoDtoRepository extends ServiceEntityRepository
     {
         return (int) $this->createQueryBuilder('s')
             ->select('COUNT(s.id)')
-            ->andWhere('s.Manche = :m')
+            ->andWhere('s.manche = :m')
             ->andWhere('LOWER(s.gagnant) IN (:g)')
             ->setParameter('m', $mancheId)
             ->setParameter('g', $this->getTruthyGagnantValues())
@@ -34,9 +34,9 @@ class SetChoixBontoDtoRepository extends ServiceEntityRepository
     {
         $count = (int) $this->createQueryBuilder('s')
             ->select('COUNT(s.id)')
-            ->andWhere('s.Manche = :m')
+            ->andWhere('s.manche = :m')
             ->andWhere('LOWER(s.gagnant) IN (:g)')
-            ->andWhere('s.EquipeId = :e')
+            ->andWhere('s.equipeId = :e')
             ->setParameter('m', $mancheId)
             ->setParameter('g', $this->getTruthyGagnantValues())
             ->setParameter('e', $equipeId)
