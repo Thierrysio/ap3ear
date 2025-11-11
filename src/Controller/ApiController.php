@@ -390,9 +390,10 @@ final class ApiController extends AbstractController
             $row = new SetChoixBontoDto();
             $row->setManche($manche);
             $row->setEquipeId($equipeId);
-            $row->setGagnant($gagnant);
             $em->persist($row);
         }
+
+        $row->setGagnant($gagnant);
         $row->setChoixIndex($choixIndex);
 
         try {
