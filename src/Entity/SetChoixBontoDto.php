@@ -14,13 +14,13 @@ class SetChoixBontoDto
     private ?int $id = null;
 
     #[ORM\Column]
-    private ?int $Manche = null;
+    private ?int $manche = null;
 
     #[ORM\Column]
-    private ?int $EquipeId = null;
+    private ?int $equipeId = null;
 
     #[ORM\Column]
-    private ?int $ChoixIndex = null;
+    private ?int $choixIndex = null;
 
     #[ORM\Column(length: 255)]
     private ?string $gagnant = null;
@@ -32,36 +32,36 @@ class SetChoixBontoDto
 
     public function getManche(): ?int
     {
-        return $this->Manche;
+        return $this->manche;
     }
 
-    public function setManche(int $Manche): static
+    public function setManche(int $manche): static
     {
-        $this->Manche = $Manche;
+        $this->manche = $manche;
 
         return $this;
     }
 
     public function getEquipeId(): ?int
     {
-        return $this->EquipeId;
+        return $this->equipeId;
     }
 
-    public function setEquipeId(int $EquipeId): static
+    public function setEquipeId(int $equipeId): static
     {
-        $this->EquipeId = $EquipeId;
+        $this->equipeId = $equipeId;
 
         return $this;
     }
 
     public function getChoixIndex(): ?int
     {
-        return $this->ChoixIndex;
+        return $this->choixIndex;
     }
 
-    public function setChoixIndex(int $ChoixIndex): static
+    public function setChoixIndex(int $choixIndex): static
     {
-        $this->ChoixIndex = $ChoixIndex;
+        $this->choixIndex = $choixIndex;
 
         return $this;
     }
