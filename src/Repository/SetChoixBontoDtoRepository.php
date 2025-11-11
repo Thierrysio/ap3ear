@@ -16,29 +16,29 @@ class SetChoixBontoDtoRepository extends ServiceEntityRepository
         parent::__construct($registry, SetChoixBontoDto::class);
     }
     
-      /** Compte les gagnants (Gagnant=1) pour la manche donnÈe. */
+      /** Compte les gagnants (Gagnant=1) pour la manche donn√©e. */
     public function countGagnantsParManche(int $mancheId): int
     {
         return (int) $this->createQueryBuilder('s')
             ->select('COUNT(s.id)')
             ->andWhere('s.Manche = :m')
-            ->andWhere('s.gagnant = :g')
+            ->andWhere('LOWER(s.gagnant) IN (:g)')
             ->setParameter('m', $mancheId)
-            ->setParameter('g', 'True') // passer ‡ true si boolÈen en BDD
+            ->setParameter('g', $this->getTruthyGagnantValues())
             ->getQuery()
             ->getSingleScalarResult();
     }
 
-    /** Indique si l'Èquipe donnÈe est gagnante sur la manche. */
+    /** Indique si l'√©quipe donn√©e est gagnante sur la manche. */
     public function isEquipeGagnantePourManche(int $mancheId, int $equipeId): bool
     {
         $count = (int) $this->createQueryBuilder('s')
             ->select('COUNT(s.id)')
             ->andWhere('s.Manche = :m')
-            ->andWhere('s.gagnant = :g')
+            ->andWhere('LOWER(s.gagnant) IN (:g)')
             ->andWhere('s.EquipeId = :e')
             ->setParameter('m', $mancheId)
-            ->setParameter('g', 'True') // passer ‡ true si boolÈen en BDD
+            ->setParameter('g', $this->getTruthyGagnantValues())
             ->setParameter('e', $equipeId)
             ->getQuery()
             ->getSingleScalarResult();
@@ -47,7 +47,7 @@ class SetChoixBontoDtoRepository extends ServiceEntityRepository
     }
 
     /**
-     * Renvoie la synthËse attendue par l'API : une seule ligne.
+     * Renvoie la synth√®se attendue par l'API : une seule ligne.
      * ['mancheId'=>int, 'nbGagnants'=>int, 'monEquipeContinue'=>0|1]
      */
     public function syntheseResultats(int $mancheId, ?int $equipeId): array
@@ -64,6 +64,14 @@ class SetChoixBontoDtoRepository extends ServiceEntityRepository
             'nbGagnants'        => $nb,
             'monEquipeContinue' => $me,
         ];
+    }
+
+    /**
+     * Liste des valeurs interpr√©t√©es comme "vrai" pour le champ gagnant.
+     */
+    private function getTruthyGagnantValues(): array
+    {
+        return ['true', '1', 'on', 'yes'];
     }
 
     //    /**
