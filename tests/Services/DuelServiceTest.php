@@ -299,6 +299,11 @@ final class DuelServiceTest extends KernelTestCase
 
         self::assertTrue($zombie->isEliminated(), 'The zombie must be eliminated by the shotgun.');
         self::assertSame(
+            Game4Player::ROLE_ELIMINATED,
+            $zombie->getRole(),
+            'An eliminated zombie should no longer keep the zombie or human role.'
+        );
+        self::assertSame(
             $human->getId(),
             $zombieCards[9]->getOwner()?->getId(),
             'The highest posted card should be transferred to the human.'

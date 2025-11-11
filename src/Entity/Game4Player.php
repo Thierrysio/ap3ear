@@ -8,9 +8,12 @@ use Symfony\Component\Validator\Constraints as Assert;
 
 #[ORM\Entity(repositoryClass: Game4PlayerRepository::class)]
 #[ORM\Table(name: 'game4_player')]
-# Unicité d’un joueur (équipe) dans un game
-#[ORM\UniqueConstraint(name: 'uniq_game_equipe', columns: ['game_id', 'equipe_id'])]
-# Index perfs pour tes requêtes
+    public const ROLE_HUMAN      = 'human';
+    public const ROLE_ZOMBIE     = 'zombie';
+    public const ROLE_ELIMINATED = 'eliminated';
+    #[Assert\Choice(choices: [self::ROLE_HUMAN, self::ROLE_ZOMBIE, self::ROLE_ELIMINATED])]
+        } elseif ($r === self::ROLE_ELIMINATED) {
+            $this->isZombie = false;
 #[ORM\Index(name: 'idx_g4player_game_alive',  columns: ['game_id','is_alive'])]
 #[ORM\Index(name: 'idx_g4player_game_role',   columns: ['game_id','role'])]
 #[ORM\Index(name: 'idx_g4player_game_locked', columns: ['game_id','locked_in_duel'])]
@@ -47,7 +50,7 @@ class Game4Player
     #[ORM\Column(type: 'boolean', options: ['default' => false], name: 'locked_in_duel')]
     private bool $lockedInDuel = false;
 
-    // Nouveaux états persistants utilisés par les règles de duel
+    // Nouveaux Ã©tats persistants utilisÃ©s par les rÃ¨gles de duel
     #[ORM\Column(type: 'boolean', options: ['default' => false], name: 'is_zombie')]
     private bool $isZombie = false;
 
@@ -75,7 +78,7 @@ class Game4Player
     public function setRole(string $r): self
     {
         $this->role = $r;
-        // Garde isZombie cohérent avec role si on passe par setRole
+        // Garde isZombie cohÃ©rent avec role si on passe par setRole
         if ($r === self::ROLE_ZOMBIE) {
             $this->isZombie = true;
         } elseif ($r === self::ROLE_HUMAN) {
@@ -128,9 +131,21 @@ class Game4Player
         return $this;
     }
 
-    // ===== États Zombie/Elimination (synchronisés avec role) =====
+        if ($isZombie) {
+            $this->role = self::ROLE_ZOMBIE;
+        } elseif ($this->isEliminated) {
+            $this->role = self::ROLE_ELIMINATED;
+        } else {
+            $this->role = self::ROLE_HUMAN;
+        }
 
-    public function isZombie(): bool
+            $this->isZombie = false;
+            $this->role = self::ROLE_ELIMINATED;
+        if ($this->isEliminated) {
+            return self::ROLE_ELIMINATED;
+        }
+
+        return $this->isZombie ? self::ROLE_ZOMBIE : self::ROLE_HUMAN;
     {
         return $this->isZombie;
     }
@@ -138,7 +153,7 @@ class Game4Player
     public function setZombie(bool $isZombie): self
     {
         $this->isZombie = $isZombie;
-        // Garde role cohérent avec isZombie si on passe par setZombie
+        // Garde role cohÃ©rent avec isZombie si on passe par setZombie
         $this->role = $isZombie ? self::ROLE_ZOMBIE : self::ROLE_HUMAN;
         return $this;
     }
@@ -173,7 +188,7 @@ class Game4Player
         return $this;
     }
 
-    // Petit helper d’affichage si nécessaire
+    // Petit helper dâ€™affichage si nÃ©cessaire
     public function getDisplayRole(): string
     {
         return $this->isZombie ? 'zombie' : 'human';
