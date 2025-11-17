@@ -176,7 +176,8 @@ final class ApiController extends AbstractController
         UserPasswordHasherInterface $passwordHasher,
         EntityManagerInterface $em,
         UserRepository $userRepository,
-        ValidatorInterface $validator
+        ValidatorInterface $validator,
+        TEquipeRepository $equipeRepository
     ): JsonResponse {
         if (0 !== strpos((string) $request->headers->get('Content-Type', ''), 'application/json')) {
             return $this->jsonOk(['error' => 'Content-Type must be application/json'], Response::HTTP_BAD_REQUEST);
@@ -187,12 +188,13 @@ final class ApiController extends AbstractController
             return $this->jsonOk(['error' => 'JSON invalide', 'details' => $e->getMessage()], Response::HTTP_BAD_REQUEST);
         }
 
-        $email  = $this->toUtf8($data->Email   ?? null);
-        $pwd    = $this->toUtf8($data->Password?? null);
-        $nom    = $this->toUtf8($data->Nom     ?? null, normalize: true);
-        $prenom = $this->toUtf8($data->Prenom  ?? null, normalize: true);
+        $email         = $this->toUtf8($data->Email         ?? null);
+        $pwd           = $this->toUtf8($data->Password      ?? null);
+        $nom           = $this->toUtf8($data->Nom           ?? null, normalize: true);
+        $prenom        = $this->toUtf8($data->Prenom        ?? null, normalize: true);
+        $equipeChoisie = $data->equipeChoisie ?? $data->EquipeChoisie ?? null;
 
-        if (!$email || !$pwd || !$nom || !$prenom) {
+        if (!$email || !$pwd || !$nom || !$prenom || null === $equipeChoisie) {
             return $this->jsonOk(['error' => 'Champs manquants'], Response::HTTP_BAD_REQUEST);
         }
         if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
@@ -211,6 +213,18 @@ final class ApiController extends AbstractController
         $user->setPrenom(trim($prenom));
         $user->setStatut(true);
         $user->setRoles(['ROLE_USER']);
+
+        $equipeId = filter_var($equipeChoisie, FILTER_VALIDATE_INT);
+        if (false === $equipeId) {
+            return $this->jsonOk(['error' => 'Identifiant d\'équipe invalide'], Response::HTTP_BAD_REQUEST);
+        }
+
+        $equipe = $equipeRepository->find((int) $equipeId);
+        if (!$equipe) {
+            return $this->jsonOk(['error' => 'Équipe introuvable'], Response::HTTP_NOT_FOUND);
+        }
+
+        $user->setLatEquipe($equipe);
 
         $hashed = $passwordHasher->hashPassword($user, $pwd);
         $user->setPassword($hashed);
@@ -236,6 +250,10 @@ final class ApiController extends AbstractController
             'email'  => $user->getEmail(),
             'nom'    => $user->getNom(),
             'prenom' => $user->getPrenom(),
+            'equipe' => [
+                'id'  => $equipe->getId(),
+                'nom' => $equipe->getNom(),
+            ],
         ];
 
         return $this->jsonOk($payload, Response::HTTP_CREATED);
