@@ -166,6 +166,81 @@ final class ApiController extends AbstractController
 
         return $this->jsonOk($payload, Response::HTTP_CREATED);
     }
+    
+     // ---------------------------------------------------------------------
+    // REGISTER (d?j? chez toi)
+    // ---------------------------------------------------------------------
+    #[Route('/api/mobile/registerAvecEquipe', name: 'app_mobile_registerEquipe', methods: ['POST'])]
+    public function registerAvecEquipe(
+        Request $request,
+        UserPasswordHasherInterface $passwordHasher,
+        EntityManagerInterface $em,
+        UserRepository $userRepository,
+        ValidatorInterface $validator
+    ): JsonResponse {
+        if (0 !== strpos((string) $request->headers->get('Content-Type', ''), 'application/json')) {
+            return $this->jsonOk(['error' => 'Content-Type must be application/json'], Response::HTTP_BAD_REQUEST);
+        }
+        try {
+            $data = json_decode($request->getContent(), false, 512, JSON_THROW_ON_ERROR);
+        } catch (\JsonException $e) {
+            return $this->jsonOk(['error' => 'JSON invalide', 'details' => $e->getMessage()], Response::HTTP_BAD_REQUEST);
+        }
+
+        $email  = $this->toUtf8($data->Email   ?? null);
+        $pwd    = $this->toUtf8($data->Password?? null);
+        $nom    = $this->toUtf8($data->Nom     ?? null, normalize: true);
+        $prenom = $this->toUtf8($data->Prenom  ?? null, normalize: true);
+
+        if (!$email || !$pwd || !$nom || !$prenom) {
+            return $this->jsonOk(['error' => 'Champs manquants'], Response::HTTP_BAD_REQUEST);
+        }
+        if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            return $this->jsonOk(['error' => 'Email invalide'], Response::HTTP_BAD_REQUEST);
+        }
+        if ($userRepository->findOneBy(['email' => mb_strtolower($email)])) {
+            return $this->jsonOk(['error' => 'Email d?j? utilis?'], Response::HTTP_CONFLICT);
+        }
+        if (mb_strlen($pwd) < 8) {
+            return $this->jsonOk(['error' => 'Mot de passe trop court (min 8 caract?res)'], Response::HTTP_BAD_REQUEST);
+        }
+
+        $user = new User();
+        $user->setEmail(mb_strtolower($email));
+        $user->setNom(trim($nom));
+        $user->setPrenom(trim($prenom));
+        $user->setStatut(true);
+        $user->setRoles(['ROLE_USER']);
+
+        $hashed = $passwordHasher->hashPassword($user, $pwd);
+        $user->setPassword($hashed);
+
+        $errors = $validator->validate($user);
+        if (count($errors) > 0) {
+            $err = [];
+            foreach ($errors as $violation) {
+                $err[] = $violation->getPropertyPath() . ': ' . $violation->getMessage();
+            }
+            return $this->jsonOk(['error' => 'Validation failed', 'details' => $err], Response::HTTP_BAD_REQUEST);
+        }
+
+        try {
+            $em->persist($user);
+            $em->flush();
+        } catch (\Throwable $e) {
+            return $this->jsonOk(['error' => 'Erreur serveur'], Response::HTTP_INTERNAL_SERVER_ERROR);
+        }
+
+        $payload = [
+            'id'     => $user->getId(),
+            'email'  => $user->getEmail(),
+            'nom'    => $user->getNom(),
+            'prenom' => $user->getPrenom(),
+        ];
+
+        return $this->jsonOk($payload, Response::HTTP_CREATED);
+    }
+
 
     // ---------------------------------------------------------------------
     // LOGIN (GetFindUser)
@@ -272,6 +347,26 @@ final class ApiController extends AbstractController
         return $utils->GetJsonResponse($request, $equipes, [
             'lesUsers.password',
             'lesUsers.roles',
+            'lestScores',
+        ]);
+    }
+    
+        #[Route('/api/mobile/getJusteLesEquipes', name: 'api_mobile_get_juste_les_equipes', methods: ['GET'])]
+    public function getJusteLesEquipes(
+        Request $request,
+        TEquipeRepository $equipeRepository
+    ): JsonResponse {
+        $equipes = $equipeRepository->createQueryBuilder('e')
+           
+            ->orderBy('e.nom', 'ASC')
+          
+            ->getQuery()
+            ->getResult();
+
+        $utils = new Utils();
+
+        return $utils->GetJsonResponse($request, $equipes, [
+            'lesUsers',
             'lestScores',
         ]);
     }
