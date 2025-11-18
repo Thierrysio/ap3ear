@@ -18,6 +18,9 @@ class TEquipe
     #[ORM\Column(length: 255)]
     private ?string $nom = null;
 
+    #[ORM\Column(type: 'integer', options: ['default' => 0])]
+    private int $_score = 0;
+
     /**
      * @var Collection<int, User>
      */
@@ -56,6 +59,18 @@ class TEquipe
     public function setNom(string $nom): static
     {
         $this->nom = $nom;
+
+        return $this;
+    }
+
+    public function getScore(): int
+    {
+        return $this->_score;
+    }
+
+    public function setScore(int $score): static
+    {
+        $this->_score = $score;
 
         return $this;
     }
