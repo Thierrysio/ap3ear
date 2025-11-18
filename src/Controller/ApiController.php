@@ -5,6 +5,8 @@ namespace App\Controller;
 use App\Utils\Utils;
 
 // === Entit?s ?classiques? d?j? pr?sentes chez toi ===
+use App\Entity\TCompetition;
+use App\Entity\TEquipe;
 use App\Entity\User;
 use App\Entity\TScore;
 use App\Entity\TEpreuve3Next;
@@ -344,6 +346,251 @@ final class ApiController extends AbstractController
         $response = new Utils;
         $tab = ["laCompetition","latEpreuve","password","roles"];
         return $response->GetJsonResponse($request, $var, $tab);
+    }
+
+    #[Route('/api/mobile/competitions', name: 'api_mobile_competitions_index', methods: ['GET'])]
+    public function listCompetitions(TCompetitionRepository $competitionRepository): JsonResponse
+    {
+        $competitions = $competitionRepository->createQueryBuilder('c')
+            ->leftJoin('c.teams', 't')
+            ->addSelect('t')
+            ->orderBy('c.dateDebut', 'DESC')
+            ->getQuery()
+            ->getResult();
+
+        $payload = array_map(fn (TCompetition $competition) => $this->serializeCompetition($competition), $competitions);
+
+        $nowTs = (new \DateTimeImmutable())->getTimestamp();
+        $active = 0;
+        $upcoming = 0;
+
+        foreach ($competitions as $competition) {
+            $start = $competition->getDateDebut();
+            $end = $competition->getDatefin();
+
+            if ($start && $end) {
+                $startTs = $start->getTimestamp();
+                $endTs = $end->getTimestamp();
+
+                if ($startTs <= $nowTs && $endTs >= $nowTs) {
+                    $active++;
+                    continue;
+                }
+
+                if ($startTs > $nowTs) {
+                    $upcoming++;
+                }
+            }
+        }
+
+        return $this->jsonOk([
+            'count' => count($payload),
+            'activeCount' => $active,
+            'upcomingCount' => $upcoming,
+            'competitions' => $payload,
+        ]);
+    }
+
+    #[Route('/api/mobile/competitions', name: 'api_mobile_competitions_create', methods: ['POST'])]
+    public function createCompetition(Request $request): JsonResponse
+    {
+        $data = $this->decodeJsonBody($request);
+        if ($data instanceof JsonResponse) {
+            return $data;
+        }
+
+        foreach (['dateDebut', 'dateFin'] as $field) {
+            if (empty($data[$field])) {
+                return $this->jsonOk(['error' => sprintf('Champ "%s" manquant.', $field)], Response::HTTP_BAD_REQUEST);
+            }
+        }
+
+        $dateDebut = $this->parseDateTimeValue($data['dateDebut']);
+        $dateFin = $this->parseDateTimeValue($data['dateFin']);
+
+        if (!$dateDebut || !$dateFin) {
+            return $this->jsonOk(['error' => 'Format de date invalide. Utilisez une date ISO 8601.'], Response::HTTP_BAD_REQUEST);
+        }
+
+        if ($dateFin->getTimestamp() <= $dateDebut->getTimestamp()) {
+            return $this->jsonOk(['error' => 'La date de fin doit être postérieure à la date de début.'], Response::HTTP_BAD_REQUEST);
+        }
+
+        $competition = new TCompetition();
+        $competition->setDateDebut($dateDebut);
+        $competition->setDatefin($dateFin);
+
+        $this->em->persist($competition);
+        $this->em->flush();
+
+        return $this->jsonOk([
+            'success' => true,
+            'competition' => $this->serializeCompetition($competition),
+        ], Response::HTTP_CREATED);
+    }
+
+    #[Route('/api/mobile/competitions/{id}', name: 'api_mobile_competitions_update', methods: ['PUT'])]
+    public function updateCompetition(int $id, Request $request, TCompetitionRepository $competitionRepository): JsonResponse
+    {
+        $competition = $competitionRepository->find($id);
+        if (!$competition) {
+            return $this->jsonOk(['error' => 'Compétition introuvable.'], Response::HTTP_NOT_FOUND);
+        }
+
+        $data = $this->decodeJsonBody($request);
+        if ($data instanceof JsonResponse) {
+            return $data;
+        }
+
+        $updated = false;
+
+        if (array_key_exists('dateDebut', $data)) {
+            $dateDebut = $this->parseDateTimeValue($data['dateDebut']);
+            if (!$dateDebut) {
+                return $this->jsonOk(['error' => 'Format de dateDebut invalide.'], Response::HTTP_BAD_REQUEST);
+            }
+            $competition->setDateDebut($dateDebut);
+            $updated = true;
+        }
+
+        if (array_key_exists('dateFin', $data)) {
+            $dateFin = $this->parseDateTimeValue($data['dateFin']);
+            if (!$dateFin) {
+                return $this->jsonOk(['error' => 'Format de dateFin invalide.'], Response::HTTP_BAD_REQUEST);
+            }
+            $competition->setDatefin($dateFin);
+            $updated = true;
+        }
+
+        if (!$updated) {
+            return $this->jsonOk(['error' => 'Aucune donnée à mettre à jour.'], Response::HTTP_BAD_REQUEST);
+        }
+
+        $start = $competition->getDateDebut();
+        $end = $competition->getDatefin();
+        if ($start && $end && $end->getTimestamp() <= $start->getTimestamp()) {
+            return $this->jsonOk(['error' => 'La date de fin doit être postérieure à la date de début.'], Response::HTTP_BAD_REQUEST);
+        }
+
+        $this->em->flush();
+
+        return $this->jsonOk([
+            'success' => true,
+            'competition' => $this->serializeCompetition($competition),
+        ]);
+    }
+
+    #[Route('/api/mobile/competitions/{id}', name: 'api_mobile_competitions_delete', methods: ['DELETE'])]
+    public function deleteCompetition(int $id, TCompetitionRepository $competitionRepository): JsonResponse
+    {
+        $competition = $competitionRepository->find($id);
+        if (!$competition) {
+            return $this->jsonOk(['error' => 'Compétition introuvable.'], Response::HTTP_NOT_FOUND);
+        }
+
+        $this->em->remove($competition);
+        $this->em->flush();
+
+        return $this->jsonOk(['success' => true]);
+    }
+
+    #[Route('/api/mobile/competitions/{id}/teams', name: 'api_mobile_competitions_teams', methods: ['GET'])]
+    public function listCompetitionTeams(int $id, TCompetitionRepository $competitionRepository): JsonResponse
+    {
+        $competition = $competitionRepository->createQueryBuilder('c')
+            ->leftJoin('c.teams', 't')
+            ->addSelect('t')
+            ->andWhere('c.id = :id')
+            ->setParameter('id', $id)
+            ->getQuery()
+            ->getOneOrNullResult();
+
+        if (!$competition instanceof TCompetition) {
+            return $this->jsonOk(['error' => 'Compétition introuvable.'], Response::HTTP_NOT_FOUND);
+        }
+
+        $teams = array_map(fn (TEquipe $team) => $this->serializeTeam($team), $competition->getTeams()->toArray());
+
+        return $this->jsonOk([
+            'competition' => $this->serializeCompetition($competition, false),
+            'teams' => $teams,
+            'count' => count($teams),
+        ]);
+    }
+
+    #[Route('/api/mobile/competitions/{id}/teams', name: 'api_mobile_competitions_add_team', methods: ['POST'])]
+    public function addCompetitionTeam(
+        int $id,
+        Request $request,
+        TCompetitionRepository $competitionRepository,
+        TEquipeRepository $equipeRepository
+    ): JsonResponse {
+        $competition = $competitionRepository->find($id);
+        if (!$competition) {
+            return $this->jsonOk(['error' => 'Compétition introuvable.'], Response::HTTP_NOT_FOUND);
+        }
+
+        $data = $this->decodeJsonBody($request);
+        if ($data instanceof JsonResponse) {
+            return $data;
+        }
+
+        $teamId = $data['teamId'] ?? null;
+        if (!is_numeric($teamId)) {
+            return $this->jsonOk(['error' => 'teamId doit être un entier.'], Response::HTTP_BAD_REQUEST);
+        }
+
+        $team = $equipeRepository->find((int) $teamId);
+        if (!$team) {
+            return $this->jsonOk(['error' => 'Équipe introuvable.'], Response::HTTP_NOT_FOUND);
+        }
+
+        if ($competition->getTeams()->contains($team)) {
+            return $this->jsonOk([
+                'success' => true,
+                'message' => 'Équipe déjà liée à la compétition.',
+                'team' => $this->serializeTeam($team),
+                'competition' => $this->serializeCompetition($competition, false),
+            ]);
+        }
+
+        $competition->addTeam($team);
+        $this->em->flush();
+
+        return $this->jsonOk([
+            'success' => true,
+            'team' => $this->serializeTeam($team),
+            'competition' => $this->serializeCompetition($competition, false),
+        ], Response::HTTP_CREATED);
+    }
+
+    #[Route('/api/mobile/competitions/{id}/teams/{teamId}', name: 'api_mobile_competitions_remove_team', methods: ['DELETE'])]
+    public function removeCompetitionTeam(
+        int $id,
+        int $teamId,
+        TCompetitionRepository $competitionRepository,
+        TEquipeRepository $equipeRepository
+    ): JsonResponse {
+        $competition = $competitionRepository->find($id);
+        if (!$competition) {
+            return $this->jsonOk(['error' => 'Compétition introuvable.'], Response::HTTP_NOT_FOUND);
+        }
+
+        $team = $equipeRepository->find($teamId);
+        if (!$team) {
+            return $this->jsonOk(['error' => 'Équipe introuvable.'], Response::HTTP_NOT_FOUND);
+        }
+
+        $wasLinked = $competition->getTeams()->contains($team);
+        $competition->removeTeam($team);
+        $this->em->flush();
+
+        return $this->jsonOk([
+            'success' => true,
+            'removed' => $wasLinked,
+            'team' => $this->serializeTeam($team),
+            'competition' => $this->serializeCompetition($competition, false),
+        ]);
     }
 
     #[Route('/api/mobile/getLesEquipes', name: 'api_mobile_get_les_equipes', methods: ['GET'])]
@@ -2072,7 +2319,68 @@ while ($handCount < self::G4_MAX_HAND && $deckRemaining > 0 && $attempts < $atte
         }
         return $s;
     }
-    
+
+    private function decodeJsonBody(Request $request): array|JsonResponse
+    {
+        $contentType = (string) $request->headers->get('Content-Type', '');
+        if ($contentType === '' || strpos($contentType, 'application/json') !== 0) {
+            return $this->jsonOk(['error' => 'Content-Type must be application/json'], Response::HTTP_BAD_REQUEST);
+        }
+
+        try {
+            $data = json_decode($request->getContent(), true, 512, JSON_THROW_ON_ERROR);
+        } catch (\JsonException $e) {
+            return $this->jsonOk(['error' => 'JSON invalide', 'details' => $e->getMessage()], Response::HTTP_BAD_REQUEST);
+        }
+
+        if (!is_array($data)) {
+            return $this->jsonOk(['error' => 'Payload invalide'], Response::HTTP_BAD_REQUEST);
+        }
+
+        return $data;
+    }
+
+    private function parseDateTimeValue(mixed $value): ?\DateTime
+    {
+        if (is_string($value) && trim($value) !== '') {
+            try {
+                return new \DateTime($value);
+            } catch (\Exception) {
+                return null;
+            }
+        }
+
+        return null;
+    }
+
+    private function serializeCompetition(TCompetition $competition, bool $withTeams = true): array
+    {
+        $payload = [
+            'id' => $competition->getId(),
+            'dateDebut' => $competition->getDateDebut()?->format(DATE_ATOM),
+            'dateFin' => $competition->getDatefin()?->format(DATE_ATOM),
+            'teamsCount' => $competition->getTeams()->count(),
+        ];
+
+        if ($withTeams) {
+            $payload['teams'] = array_map(
+                fn (TEquipe $team) => $this->serializeTeam($team),
+                $competition->getTeams()->toArray()
+            );
+        }
+
+        return $payload;
+    }
+
+    private function serializeTeam(TEquipe $team): array
+    {
+        return [
+            'id' => $team->getId(),
+            'nom' => $this->toUtf8($team->getNom(), true),
+            'membersCount' => $team->getLesUsers()->count(),
+        ];
+    }
+
     private function toCardDto(Game4Card $card): array
 {
     $def = $card->getDef();
