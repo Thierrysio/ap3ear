@@ -30,10 +30,17 @@ class TEquipe
     #[ORM\OneToMany(targetEntity: TScore::class, mappedBy: 'latEquipe')]
     private Collection $lestScores;
 
+    /**
+     * @var Collection<int, TCompetition>
+     */
+    #[ORM\ManyToMany(targetEntity: TCompetition::class, mappedBy: 'teams')]
+    private Collection $competitions;
+
     public function __construct()
     {
         $this->lesUsers = new ArrayCollection();
         $this->lestScores = new ArrayCollection();
+        $this->competitions = new ArrayCollection();
     }
 
     public function getId(): ?int
@@ -109,6 +116,30 @@ class TEquipe
                 $lestScore->setLatEquipe(null);
             }
         }
+
+        return $this;
+    }
+
+    /**
+     * @return Collection<int, TCompetition>
+     */
+    public function getCompetitions(): Collection
+    {
+        return $this->competitions;
+    }
+
+    public function addCompetition(TCompetition $competition): static
+    {
+        if (!$this->competitions->contains($competition)) {
+            $this->competitions->add($competition);
+        }
+
+        return $this;
+    }
+
+    public function removeCompetition(TCompetition $competition): static
+    {
+        $this->competitions->removeElement($competition);
 
         return $this;
     }
