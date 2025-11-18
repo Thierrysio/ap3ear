@@ -170,94 +170,112 @@ final class ApiController extends AbstractController
      // ---------------------------------------------------------------------
     // REGISTER (d?j? chez toi)
     // ---------------------------------------------------------------------
-    #[Route('/api/mobile/registerAvecEquipe', name: 'app_mobile_registerEquipe', methods: ['POST'])]
-    public function registerAvecEquipe(
-        Request $request,
-        UserPasswordHasherInterface $passwordHasher,
-        EntityManagerInterface $em,
-        UserRepository $userRepository,
-        ValidatorInterface $validator,
-        TEquipeRepository $equipeRepository
-    ): JsonResponse {
-        if (0 !== strpos((string) $request->headers->get('Content-Type', ''), 'application/json')) {
-            return $this->jsonOk(['error' => 'Content-Type must be application/json'], Response::HTTP_BAD_REQUEST);
-        }
-        try {
-            $data = json_decode($request->getContent(), false, 512, JSON_THROW_ON_ERROR);
-        } catch (\JsonException $e) {
-            return $this->jsonOk(['error' => 'JSON invalide', 'details' => $e->getMessage()], Response::HTTP_BAD_REQUEST);
-        }
-
-        $email         = $this->toUtf8($data->Email         ?? null);
-        $pwd           = $this->toUtf8($data->Password      ?? null);
-        $nom           = $this->toUtf8($data->Nom           ?? null, normalize: true);
-        $prenom        = $this->toUtf8($data->Prenom        ?? null, normalize: true);
-        $equipeChoisie = $data->equipeChoisie ?? $data->EquipeChoisie ?? null;
-
-        if (!$email || !$pwd || !$nom || !$prenom || null === $equipeChoisie) {
-            return $this->jsonOk(['error' => 'Champs manquants'], Response::HTTP_BAD_REQUEST);
-        }
-        if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
-            return $this->jsonOk(['error' => 'Email invalide'], Response::HTTP_BAD_REQUEST);
-        }
-        if ($userRepository->findOneBy(['email' => mb_strtolower($email)])) {
-            return $this->jsonOk(['error' => 'Email d?j? utilis?'], Response::HTTP_CONFLICT);
-        }
-        if (mb_strlen($pwd) < 8) {
-            return $this->jsonOk(['error' => 'Mot de passe trop court (min 8 caract?res)'], Response::HTTP_BAD_REQUEST);
-        }
-
-        $user = new User();
-        $user->setEmail(mb_strtolower($email));
-        $user->setNom(trim($nom));
-        $user->setPrenom(trim($prenom));
-        $user->setStatut(true);
-        $user->setRoles(['ROLE_USER']);
-
-        $equipeId = filter_var($equipeChoisie, FILTER_VALIDATE_INT);
-        if (false === $equipeId) {
-            return $this->jsonOk(['error' => 'Identifiant d\'équipe invalide'], Response::HTTP_BAD_REQUEST);
-        }
-
-        $equipe = $equipeRepository->find((int) $equipeId);
-        if (!$equipe) {
-            return $this->jsonOk(['error' => 'Équipe introuvable'], Response::HTTP_NOT_FOUND);
-        }
-
-        $user->setLatEquipe($equipe);
-
-        $hashed = $passwordHasher->hashPassword($user, $pwd);
-        $user->setPassword($hashed);
-
-        $errors = $validator->validate($user);
-        if (count($errors) > 0) {
-            $err = [];
-            foreach ($errors as $violation) {
-                $err[] = $violation->getPropertyPath() . ': ' . $violation->getMessage();
-            }
-            return $this->jsonOk(['error' => 'Validation failed', 'details' => $err], Response::HTTP_BAD_REQUEST);
-        }
-
-        try {
-            $em->persist($user);
-            $em->flush();
-        } catch (\Throwable $e) {
-            return $this->jsonOk(['error' => 'Erreur serveur'], Response::HTTP_INTERNAL_SERVER_ERROR);
-        }
-
-        $payload = [
-            'id'     => $user->getId(),
-            'email'  => $user->getEmail(),
-            'nom'    => $user->getNom(),
-            'prenom' => $user->getPrenom(),
-            'equipe' => [
-                'id'  => $equipe->getId(),
-                'nom' => $equipe->getNom(),
-            ],
-        ];
-
-        return $this->jsonOk($payload, Response::HTTP_CREATED);
+#[Route('/api/mobile/registerAvecEquipe', name: 'app_mobile_registerEquipe', methods: ['POST'])]
+public function registerAvecEquipe(
+    Request $request,
+    UserPasswordHasherInterface $passwordHasher,
+    EntityManagerInterface $em,
+    UserRepository $userRepository,
+    ValidatorInterface $validator,
+    TEquipeRepository $equipeRepository
+): JsonResponse {
+    if (0 !== strpos((string) $request->headers->get('Content-Type', ''), 'application/json')) {
+        return $this->jsonOk(['error' => 'Content-Type must be application/json'], Response::HTTP_BAD_REQUEST);
     }
+
+    try {
+        $data = json_decode($request->getContent(), false, 512, JSON_THROW_ON_ERROR);
+    } catch (\JsonException $e) {
+        return $this->jsonOk(['error' => 'JSON invalide', 'details' => $e->getMessage()], Response::HTTP_BAD_REQUEST);
+    }
+
+    $email  = $this->toUtf8($data->Email   ?? null);
+    $pwd    = $this->toUtf8($data->Password ?? null);
+    $nom    = $this->toUtf8($data->Nom     ?? null, normalize: true);
+    $prenom = $this->toUtf8($data->Prenom  ?? null, normalize: true);
+
+    // 1️⃣ Récupérer l'ID d'équipe quelle que soit la forme envoyée
+    $equipeChoisie = null;
+
+    if (isset($data->equipeChoisie)) {
+        // cas JSON : { "equipeChoisie": 4 }
+        $equipeChoisie = $data->equipeChoisie;
+    } elseif (isset($data->EquipeChoisie)) {
+        // cas JSON : { "EquipeChoisie": 4 }
+        $equipeChoisie = $data->EquipeChoisie;
+    } elseif (isset($data->latEquipe) && isset($data->latEquipe->id)) {
+        // cas JSON actuel : { "latEquipe": { "id": 4, "Nbplaces": 0 } }
+        $equipeChoisie = $data->latEquipe->id;
+    }
+
+    if (!$email || !$pwd || !$nom || !$prenom || null === $equipeChoisie) {
+        return $this->jsonOk(['error' => 'Champs manquants'], Response::HTTP_BAD_REQUEST);
+    }
+
+    if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        return $this->jsonOk(['error' => 'Email invalide'], Response::HTTP_BAD_REQUEST);
+    }
+
+    if ($userRepository->findOneBy(['email' => mb_strtolower($email)])) {
+        return $this->jsonOk(['error' => 'Email déjà utilisé'], Response::HTTP_CONFLICT);
+    }
+
+    if (mb_strlen($pwd) < 8) {
+        return $this->jsonOk(['error' => 'Mot de passe trop court (min 8 caractères)'], Response::HTTP_BAD_REQUEST);
+    }
+
+    $user = new User();
+    $user->setEmail(mb_strtolower($email));
+    $user->setNom(trim($nom));
+    $user->setPrenom(trim($prenom));
+    $user->setStatut(true);
+    $user->setRoles(['ROLE_USER']);
+
+    // 2️⃣ On valide que l'ID d'équipe est bien un entier
+    $equipeId = filter_var($equipeChoisie, FILTER_VALIDATE_INT);
+    if (false === $equipeId) {
+        return $this->jsonOk(['error' => 'Identifiant d\'équipe invalide'], Response::HTTP_BAD_REQUEST);
+    }
+
+    $equipe = $equipeRepository->find((int) $equipeId);
+    if (!$equipe) {
+        return $this->jsonOk(['error' => 'Équipe introuvable'], Response::HTTP_NOT_FOUND);
+    }
+
+    $user->setLatEquipe($equipe);
+
+    $hashed = $passwordHasher->hashPassword($user, $pwd);
+    $user->setPassword($hashed);
+
+    $errors = $validator->validate($user);
+    if (count($errors) > 0) {
+        $err = [];
+        foreach ($errors as $violation) {
+            $err[] = $violation->getPropertyPath() . ': ' . $violation->getMessage();
+        }
+        return $this->jsonOk(['error' => 'Validation failed', 'details' => $err], Response::HTTP_BAD_REQUEST);
+    }
+
+    try {
+        $em->persist($user);
+        $em->flush();
+    } catch (\Throwable $e) {
+        return $this->jsonOk(['error' => 'Erreur serveur'], Response::HTTP_INTERNAL_SERVER_ERROR);
+    }
+
+    $payload = [
+        'id'     => $user->getId(),
+        'email'  => $user->getEmail(),
+        'nom'    => $user->getNom(),
+        'prenom' => $user->getPrenom(),
+        'equipe' => [
+            'id'  => $equipe->getId(),
+            'nom' => $equipe->getNom(),
+        ],
+    ];
+
+    return $this->jsonOk($payload, Response::HTTP_CREATED);
+}
 
 
     // ---------------------------------------------------------------------
