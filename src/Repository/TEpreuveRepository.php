@@ -15,23 +15,37 @@ class TEpreuveRepository extends ServiceEntityRepository
     {
         parent::__construct($registry, TEpreuve::class);
     }
-    
-public function findEpreuveEnCours(): ?TEpreuve
-{
-    $tz  = new \DateTimeZone('Europe/Paris');              // <-- important
-    $now = new \DateTimeImmutable('now', $tz);
 
-    return $this->createQueryBuilder('e')
-        ->where('e.datedebut <= :now')
-        // équivaut à: now < dateDebut + (dureeMax + 60)
-        // => dateDebut + dureeMax > now - 60
-        ->andWhere('DATE_ADD(e.datedebut, e.dureemax, \'minute\') > :limit')
-        ->setParameter('now', $now)
-        ->setParameter('limit', $now->sub(new \DateInterval('PT60M')))
-        ->setMaxResults(1)
-        ->getQuery()
-        ->getOneOrNullResult();
-}
+    public function findNextEpreuve(): ?TEpreuve
+    {
+        $tz  = new \DateTimeZone('Europe/Paris');
+        $now = new \DateTimeImmutable('now', $tz);
+
+        return $this->createQueryBuilder('e')
+            ->where('e.datedebut > :now')
+            ->setParameter('now', $now)
+            ->orderBy('e.datedebut', 'ASC')
+            ->setMaxResults(1)
+            ->getQuery()
+            ->getOneOrNullResult();
+    }
+
+    public function findEpreuveEnCours(): ?TEpreuve
+    {
+        $tz  = new \DateTimeZone('Europe/Paris');              // <-- important
+        $now = new \DateTimeImmutable('now', $tz);
+
+        return $this->createQueryBuilder('e')
+            ->where('e.datedebut <= :now')
+            // Ã©quivaut Ã : now < dateDebut + (dureeMax + 60)
+            // => dateDebut + dureeMax > now - 60
+            ->andWhere('DATE_ADD(e.datedebut, e.dureemax, \'minute\') > :limit')
+            ->setParameter('now', $now)
+            ->setParameter('limit', $now->sub(new \DateInterval('PT60M')))
+            ->setMaxResults(1)
+            ->getQuery()
+            ->getOneOrNullResult();
+    }
 
 
     //    /**
