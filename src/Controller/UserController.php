@@ -59,6 +59,7 @@ final class UserController extends AbstractController
         return $utils->GetJsonResponse($request, $user, [
             'password',
             'roles',
+            'latEquipe.competitions',
             'latEquipe.lesUsers',
             'latEquipe.lestScores',
         ]);
