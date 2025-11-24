@@ -9,8 +9,8 @@ use Symfony\Component\Routing\Attribute\Route;
 
 final class EliesMobileController extends AbstractController
 {
-    #[Route('/api/elies/mobile/', name: 'app_elies_mobile_index', methods: ['GET'])]
-    public function list(TEquipeRepository $teamRepository): JsonResponse
+    #[Route('/api/elies/mobile/EquipeScore', name: 'app_elies_mobile_index', methods: ['GET'])]
+    public function EquipeScore(TEquipeRepository $teamRepository): JsonResponse
     {
         $teams = $teamRepository
             ->createQueryBuilder('team')
