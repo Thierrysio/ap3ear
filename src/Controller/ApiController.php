@@ -317,6 +317,40 @@ public function registerAvecEquipe(
     }
 
     // ---------------------------------------------------------------------
+    // LISTE UTILISATEURS (Mobile)
+    // ---------------------------------------------------------------------
+    #[Route('/api/mobile/listeUsers', name: 'api_mobile_liste_users', methods: ['GET'])]
+    public function listUsers(UserRepository $userRepository): JsonResponse
+    {
+        $users = $userRepository
+            ->createQueryBuilder('user')
+            ->leftJoin('user.latEquipe', 'team')
+            ->addSelect('team')
+            ->getQuery()
+            ->getResult();
+
+        $payload = [];
+        foreach ($users as $user) {
+            $team = $user->getLatEquipe();
+
+            $payload[] = [
+                'id' => $user->getId(),
+                'email' => $user->getEmail(),
+                'nom' => $user->getNom(),
+                'prenom' => $user->getPrenom(),
+                'statut' => $user->isStatut(),
+                'equipe' => $team ? [
+                    'id' => $team->getId(),
+                    'nom' => $team->getNom(),
+                    'score' => $team->getScore(),
+                ] : null,
+            ];
+        }
+
+        return $this->jsonOk($payload);
+    }
+
+    // ---------------------------------------------------------------------
     // COMP?TITION EN COURS
     // ---------------------------------------------------------------------
     #[Route('/api/mobile/competition/enCours', name: 'app_mobile_competition_encours', methods: ['GET'])]
