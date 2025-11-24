@@ -3,8 +3,10 @@
 namespace App\Controller;
 
 use App\Repository\TEquipeRepository;
+use App\Repository\TEpreuveRepository;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
+use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\Routing\Attribute\Route;
 
 final class EliesMobileController extends AbstractController
@@ -40,5 +42,25 @@ final class EliesMobileController extends AbstractController
         }
 
         return $this->json($payload);
+    }
+
+    #[Route('/api/mobile/nextEpreuve', name: 'app_mobile_next_epreuve', methods: ['GET'])]
+    public function nextEpreuve(TEpreuveRepository $epreuveRepository): JsonResponse
+    {
+        $nextEpreuve = $epreuveRepository->findNextEpreuve();
+
+        if (!$nextEpreuve) {
+            return $this->json(
+                ['message' => 'Aucune épreuve à venir.'],
+                Response::HTTP_NOT_FOUND
+            );
+        }
+
+        return $this->json([
+            'id' => $nextEpreuve->getId(),
+            'nom' => $nextEpreuve->getNom(),
+            'dateDebut' => $nextEpreuve->getDatedebut()?->format(DATE_ATOM),
+            'dureeMax' => $nextEpreuve->getDureemax(),
+        ]);
     }
 }
