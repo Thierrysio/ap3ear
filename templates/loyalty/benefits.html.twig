@@ -136,20 +136,27 @@
 
         <div class="products-grid">
             {% for product in products %}
+                {% set normalizedCategory = product.category|lower %}
+                {% set isGoldCategory = 'produits gold' in normalizedCategory %}
+                {% set categoryClass =
+                    isGoldCategory ? 'gold' :
+                    ('silver' in normalizedCategory ? 'silver' :
+                    ('bronze' in normalizedCategory ? 'bronze' : ''))
+                %}
                 <article class="product-card">
                     <div class="product-name">{{ product.name }}</div>
                     <div class="product-meta">
-                        <span class="product-category {{ product.category|lower }}">{{ product.category }}</span>
+                        <span class="product-category {{ categoryClass }}">{{ product.category }}</span>
                         <span class="product-price">
                             {{ product.price|number_format(2, ',', ' ') }} €
-                            {% if product.category == 'Gold' %}
+                            {% if isGoldCategory %}
                                 <span class="gold-bonus">+1</span>
                             {% endif %}
                         </span>
                     </div>
-                    <p class="product-description">
-                        Avantage fidélité disponible dès maintenant pour vos prochaines commandes.
-                    </p>
+                    {% if product.description is defined %}
+                        <p class="product-description">{{ product.description }}</p>
+                    {% endif %}
                 </article>
             {% endfor %}
         </div>
