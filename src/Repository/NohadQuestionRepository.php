@@ -15,4 +15,16 @@ class NohadQuestionRepository extends ServiceEntityRepository
     {
         parent::__construct($registry, NohadQuestion::class);
     }
+
+    /**
+     * @return NohadQuestion[]
+     */
+    public function findAllWithReponses(): array
+    {
+        return $this->createQueryBuilder('question')
+            ->leftJoin('question.reponses', 'reponse')
+            ->addSelect('reponse')
+            ->getQuery()
+            ->getResult();
+    }
 }
