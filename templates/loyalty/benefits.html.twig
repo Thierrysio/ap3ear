@@ -136,13 +136,15 @@
 
         <div class="products-grid">
             {% for product in products %}
+                {% set categoryClass = product.category|lower|replace({' ': '-'}) %}
+                {% set isGoldCategory = 'gold' in product.category|lower %}
                 <article class="product-card">
                     <div class="product-name">{{ product.name }}</div>
                     <div class="product-meta">
-                        <span class="product-category {{ product.category|lower }}">{{ product.category }}</span>
+                        <span class="product-category {{ categoryClass }}">{{ product.category }}</span>
                         <span class="product-price">
                             {{ product.price|number_format(2, ',', ' ') }} €
-                            {% if product.category == 'Gold' %}
+                            {% if isGoldCategory %}
                                 <span class="gold-bonus">+1</span>
                             {% endif %}
                         </span>
