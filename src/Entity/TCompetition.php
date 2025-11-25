@@ -34,6 +34,9 @@ class TCompetition
     #[ORM\JoinTable(name: 'tcompetition_tequipe')]
     private Collection $teams;
 
+    #[ORM\Column(length: 255, nullable: true)]
+    private ?string $nom = null;
+
     public function __construct()
     {
         $this->lestEpreuves = new ArrayCollection();
@@ -122,6 +125,18 @@ class TCompetition
         if ($this->teams->removeElement($team)) {
             $team->removeCompetition($this);
         }
+
+        return $this;
+    }
+
+    public function getNom(): ?string
+    {
+        return $this->nom;
+    }
+
+    public function setNom(?string $nom): static
+    {
+        $this->nom = $nom;
 
         return $this;
     }

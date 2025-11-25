@@ -10,7 +10,7 @@ use Doctrine\Migrations\AbstractMigration;
 /**
  * Auto-generated Migration: Please modify to your needs!
  */
-final class Version20251118152826 extends AbstractMigration
+final class Version20251125141541 extends AbstractMigration
 {
     public function getDescription(): string
     {
@@ -26,6 +26,8 @@ final class Version20251118152826 extends AbstractMigration
         $this->addSql('CREATE TABLE game4_duel_play (id INT AUTO_INCREMENT NOT NULL, duel_id INT NOT NULL, player_id INT NOT NULL, card_id INT DEFAULT NULL, card_code VARCHAR(64) NOT NULL, card_type VARCHAR(16) NOT NULL, num_value INT DEFAULT NULL, round_index INT NOT NULL, submitted_at DATETIME NOT NULL COMMENT \'(DC2Type:datetime_immutable)\', INDEX IDX_B0B5D9A199E6F5DF (player_id), INDEX IDX_B0B5D9A14ACC9A20 (card_id), INDEX idx_duel (duel_id), INDEX idx_duel_player (duel_id, player_id), INDEX idx_duel_round (duel_id, round_index), INDEX idx_duel_type (duel_id, card_type), UNIQUE INDEX uniq_duel_player_round (duel_id, player_id, round_index), PRIMARY KEY(id)) DEFAULT CHARACTER SET utf8mb4 COLLATE `utf8mb4_unicode_ci` ENGINE = InnoDB');
         $this->addSql('CREATE TABLE game4_game (id INT AUTO_INCREMENT NOT NULL, phase VARCHAR(16) NOT NULL, created_at DATETIME NOT NULL COMMENT \'(DC2Type:datetime_immutable)\', ends_at DATETIME DEFAULT NULL COMMENT \'(DC2Type:datetime_immutable)\', draw_count INT DEFAULT 0 NOT NULL, discard_count INT DEFAULT 0 NOT NULL, round_index INT DEFAULT 0 NOT NULL, rounds_max INT DEFAULT 20 NOT NULL, round_seconds INT DEFAULT 60 NOT NULL, PRIMARY KEY(id)) DEFAULT CHARACTER SET utf8mb4 COLLATE `utf8mb4_unicode_ci` ENGINE = InnoDB');
         $this->addSql('CREATE TABLE game4_player (id INT AUTO_INCREMENT NOT NULL, game_id INT NOT NULL, incoming_duel_id INT DEFAULT NULL, equipe_id INT NOT NULL, name VARCHAR(100) NOT NULL, role VARCHAR(12) NOT NULL, lives INT DEFAULT 3 NOT NULL, is_alive TINYINT(1) DEFAULT 1 NOT NULL, locked_in_duel TINYINT(1) DEFAULT 0 NOT NULL, is_zombie TINYINT(1) DEFAULT 0 NOT NULL, is_eliminated TINYINT(1) DEFAULT 0 NOT NULL, INDEX IDX_79695E24E48FD905 (game_id), INDEX IDX_79695E2458994BC (incoming_duel_id), INDEX idx_g4player_game_alive (game_id, is_alive), INDEX idx_g4player_game_role (game_id, role), INDEX idx_g4player_game_locked (game_id, locked_in_duel), PRIMARY KEY(id)) DEFAULT CHARACTER SET utf8mb4 COLLATE `utf8mb4_unicode_ci` ENGINE = InnoDB');
+        $this->addSql('CREATE TABLE nohad_question (id INT AUTO_INCREMENT NOT NULL, enonce VARCHAR(255) NOT NULL, duree_secondes INT NOT NULL, PRIMARY KEY(id)) DEFAULT CHARACTER SET utf8mb4 COLLATE `utf8mb4_unicode_ci` ENGINE = InnoDB');
+        $this->addSql('CREATE TABLE nohad_reponse (id INT AUTO_INCREMENT NOT NULL, question_id INT NOT NULL, identifiant VARCHAR(255) NOT NULL, texte VARCHAR(255) NOT NULL, INDEX IDX_3AC64B5D1E27F6BF (question_id), PRIMARY KEY(id)) DEFAULT CHARACTER SET utf8mb4 COLLATE `utf8mb4_unicode_ci` ENGINE = InnoDB');
         $this->addSql('CREATE TABLE set_choix_bonto_dto (id INT AUTO_INCREMENT NOT NULL, manche INT NOT NULL, equipe_id INT NOT NULL, choix_index INT NOT NULL, gagnant VARCHAR(255) NOT NULL, PRIMARY KEY(id)) DEFAULT CHARACTER SET utf8mb4 COLLATE `utf8mb4_unicode_ci` ENGINE = InnoDB');
         $this->addSql('CREATE TABLE tcompetition (id INT AUTO_INCREMENT NOT NULL, date_debut DATETIME NOT NULL, datefin DATETIME NOT NULL, PRIMARY KEY(id)) DEFAULT CHARACTER SET utf8mb4 COLLATE `utf8mb4_unicode_ci` ENGINE = InnoDB');
         $this->addSql('CREATE TABLE tcompetition_tequipe (tcompetition_id INT NOT NULL, tequipe_id INT NOT NULL, INDEX IDX_5B8712DDF17116FD (tcompetition_id), INDEX IDX_5B8712DD97A742B3 (tequipe_id), PRIMARY KEY(tcompetition_id, tequipe_id)) DEFAULT CHARACTER SET utf8mb4 COLLATE `utf8mb4_unicode_ci` ENGINE = InnoDB');
@@ -49,6 +51,7 @@ final class Version20251118152826 extends AbstractMigration
         $this->addSql('ALTER TABLE game4_duel_play ADD CONSTRAINT FK_B0B5D9A14ACC9A20 FOREIGN KEY (card_id) REFERENCES game4_card (id) ON DELETE SET NULL');
         $this->addSql('ALTER TABLE game4_player ADD CONSTRAINT FK_79695E24E48FD905 FOREIGN KEY (game_id) REFERENCES game4_game (id) ON DELETE CASCADE');
         $this->addSql('ALTER TABLE game4_player ADD CONSTRAINT FK_79695E2458994BC FOREIGN KEY (incoming_duel_id) REFERENCES game4_duel (id) ON DELETE SET NULL');
+        $this->addSql('ALTER TABLE nohad_reponse ADD CONSTRAINT FK_3AC64B5D1E27F6BF FOREIGN KEY (question_id) REFERENCES nohad_question (id)');
         $this->addSql('ALTER TABLE tcompetition_tequipe ADD CONSTRAINT FK_5B8712DDF17116FD FOREIGN KEY (tcompetition_id) REFERENCES tcompetition (id) ON DELETE CASCADE');
         $this->addSql('ALTER TABLE tcompetition_tequipe ADD CONSTRAINT FK_5B8712DD97A742B3 FOREIGN KEY (tequipe_id) REFERENCES tequipe (id) ON DELETE CASCADE');
         $this->addSql('ALTER TABLE tepreuve ADD CONSTRAINT FK_6F97B02C8A85F8E FOREIGN KEY (la_competition_id) REFERENCES tcompetition (id)');
@@ -73,6 +76,7 @@ final class Version20251118152826 extends AbstractMigration
         $this->addSql('ALTER TABLE game4_duel_play DROP FOREIGN KEY FK_B0B5D9A14ACC9A20');
         $this->addSql('ALTER TABLE game4_player DROP FOREIGN KEY FK_79695E24E48FD905');
         $this->addSql('ALTER TABLE game4_player DROP FOREIGN KEY FK_79695E2458994BC');
+        $this->addSql('ALTER TABLE nohad_reponse DROP FOREIGN KEY FK_3AC64B5D1E27F6BF');
         $this->addSql('ALTER TABLE tcompetition_tequipe DROP FOREIGN KEY FK_5B8712DDF17116FD');
         $this->addSql('ALTER TABLE tcompetition_tequipe DROP FOREIGN KEY FK_5B8712DD97A742B3');
         $this->addSql('ALTER TABLE tepreuve DROP FOREIGN KEY FK_6F97B02C8A85F8E');
@@ -86,6 +90,8 @@ final class Version20251118152826 extends AbstractMigration
         $this->addSql('DROP TABLE game4_duel_play');
         $this->addSql('DROP TABLE game4_game');
         $this->addSql('DROP TABLE game4_player');
+        $this->addSql('DROP TABLE nohad_question');
+        $this->addSql('DROP TABLE nohad_reponse');
         $this->addSql('DROP TABLE set_choix_bonto_dto');
         $this->addSql('DROP TABLE tcompetition');
         $this->addSql('DROP TABLE tcompetition_tequipe');
