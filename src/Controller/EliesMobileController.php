@@ -44,23 +44,24 @@ final class EliesMobileController extends AbstractController
         return $this->json($payload);
     }
 
-    #[Route('/api/mobile/nextEpreuve', name: 'app_mobile_next_epreuve', methods: ['GET'])]
-    public function nextEpreuve(TEpreuveRepository $epreuveRepository): JsonResponse
-    {
-        $nextEpreuve = $epreuveRepository->findNextEpreuve();
+    #[Route('/api/mobile/nextEpreuve', name: 'app_mobile_next_epreuve', methods: ['POST'])]
+public function nextEpreuve(TEpreuveRepository $epreuveRepository): JsonResponse
+{
+    $nextEpreuve = $epreuveRepository->findNextEpreuve();
 
-        if (!$nextEpreuve) {
-            return $this->json(
-                ['message' => 'Aucune épreuve à venir.'],
-                Response::HTTP_NOT_FOUND
-            );
-        }
-
-        return $this->json([
-            'id' => $nextEpreuve->getId(),
-            'nom' => $nextEpreuve->getNom(),
-            'dateDebut' => $nextEpreuve->getDatedebut()?->format(DATE_ATOM),
-            'dureeMax' => $nextEpreuve->getDureemax(),
-        ]);
+    if (!$nextEpreuve) {
+        return $this->json(
+            ['message' => 'Aucune épreuve à venir.'],
+            Response::HTTP_NOT_FOUND
+        );
     }
+
+    return $this->json([
+        'id'        => $nextEpreuve->getId(),
+        'nom'       => $nextEpreuve->getNom(),
+        'dateDebut' => $nextEpreuve->getDatedebut()?->format(DATE_ATOM),
+        'dureeMax'  => $nextEpreuve->getDureemax(),
+    ]);
+}
+
 }
