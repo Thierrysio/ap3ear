@@ -10,7 +10,7 @@ use Doctrine\Migrations\AbstractMigration;
 /**
  * Auto-generated Migration: Please modify to your needs!
  */
-final class Version20251125141541 extends AbstractMigration
+final class Version20251125150306 extends AbstractMigration
 {
     public function getDescription(): string
     {
@@ -29,7 +29,7 @@ final class Version20251125141541 extends AbstractMigration
         $this->addSql('CREATE TABLE nohad_question (id INT AUTO_INCREMENT NOT NULL, enonce VARCHAR(255) NOT NULL, duree_secondes INT NOT NULL, PRIMARY KEY(id)) DEFAULT CHARACTER SET utf8mb4 COLLATE `utf8mb4_unicode_ci` ENGINE = InnoDB');
         $this->addSql('CREATE TABLE nohad_reponse (id INT AUTO_INCREMENT NOT NULL, question_id INT NOT NULL, identifiant VARCHAR(255) NOT NULL, texte VARCHAR(255) NOT NULL, INDEX IDX_3AC64B5D1E27F6BF (question_id), PRIMARY KEY(id)) DEFAULT CHARACTER SET utf8mb4 COLLATE `utf8mb4_unicode_ci` ENGINE = InnoDB');
         $this->addSql('CREATE TABLE set_choix_bonto_dto (id INT AUTO_INCREMENT NOT NULL, manche INT NOT NULL, equipe_id INT NOT NULL, choix_index INT NOT NULL, gagnant VARCHAR(255) NOT NULL, PRIMARY KEY(id)) DEFAULT CHARACTER SET utf8mb4 COLLATE `utf8mb4_unicode_ci` ENGINE = InnoDB');
-        $this->addSql('CREATE TABLE tcompetition (id INT AUTO_INCREMENT NOT NULL, date_debut DATETIME NOT NULL, datefin DATETIME NOT NULL, PRIMARY KEY(id)) DEFAULT CHARACTER SET utf8mb4 COLLATE `utf8mb4_unicode_ci` ENGINE = InnoDB');
+        $this->addSql('CREATE TABLE tcompetition (id INT AUTO_INCREMENT NOT NULL, date_debut DATETIME NOT NULL, datefin DATETIME NOT NULL, nom VARCHAR(255) DEFAULT NULL, PRIMARY KEY(id)) DEFAULT CHARACTER SET utf8mb4 COLLATE `utf8mb4_unicode_ci` ENGINE = InnoDB');
         $this->addSql('CREATE TABLE tcompetition_tequipe (tcompetition_id INT NOT NULL, tequipe_id INT NOT NULL, INDEX IDX_5B8712DDF17116FD (tcompetition_id), INDEX IDX_5B8712DD97A742B3 (tequipe_id), PRIMARY KEY(tcompetition_id, tequipe_id)) DEFAULT CHARACTER SET utf8mb4 COLLATE `utf8mb4_unicode_ci` ENGINE = InnoDB');
         $this->addSql('CREATE TABLE tepreuve (id INT AUTO_INCREMENT NOT NULL, la_competition_id INT DEFAULT NULL, nom VARCHAR(255) NOT NULL, datedebut DATETIME NOT NULL, dureemax INT NOT NULL, INDEX IDX_6F97B02C8A85F8E (la_competition_id), PRIMARY KEY(id)) DEFAULT CHARACTER SET utf8mb4 COLLATE `utf8mb4_unicode_ci` ENGINE = InnoDB');
         $this->addSql('CREATE TABLE tepreuve3_finish (id INT AUTO_INCREMENT NOT NULL, equipe_id INT NOT NULL, epreuve_id INT NOT NULL, PRIMARY KEY(id)) DEFAULT CHARACTER SET utf8mb4 COLLATE `utf8mb4_unicode_ci` ENGINE = InnoDB');
