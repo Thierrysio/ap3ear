@@ -3,8 +3,10 @@
 namespace App\Controller;
 
 use App\Entity\Aurelien\Lieu;
+use App\Entity\TCompetition;
 use App\Repository\Aurelien\LieuRepository;
 use App\Repository\Aurelien\QuestionRepository;
+use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
@@ -91,5 +93,58 @@ final class AurelienController extends AbstractController
             ],
             'message' => $isValid ? 'QR Code valide.' : 'QR Code invalide.',
         ], $isValid ? Response::HTTP_OK : Response::HTTP_BAD_REQUEST);
+    }
+
+    #[Route('/api/mobile/competition', name: 'app_aurelien_competition_create', methods: ['POST'])]
+    public function createCompetition(Request $request, EntityManagerInterface $entityManager): JsonResponse
+    {
+        $payload = json_decode($request->getContent(), true);
+
+        if (!\is_array($payload)) {
+            return $this->json([
+                'message' => 'Corps de requête JSON invalide.',
+            ], Response::HTTP_BAD_REQUEST);
+        }
+
+        foreach (['dateDebut', 'dateFin'] as $field) {
+            if (empty($payload[$field])) {
+                return $this->json([
+                    'message' => sprintf('Le champ "%s" est requis.', $field),
+                ], Response::HTTP_BAD_REQUEST);
+            }
+        }
+
+        try {
+            $dateDebut = new \DateTime((string) $payload['dateDebut']);
+            $dateFin = new \DateTime((string) $payload['dateFin']);
+        } catch (\Exception) {
+            return $this->json([
+                'message' => 'Format de date invalide. Utilisez une date ISO 8601.',
+            ], Response::HTTP_BAD_REQUEST);
+        }
+
+        if ($dateFin->getTimestamp() <= $dateDebut->getTimestamp()) {
+            return $this->json([
+                'message' => 'La date de fin doit être postérieure à la date de début.',
+            ], Response::HTTP_BAD_REQUEST);
+        }
+
+        $competition = new TCompetition();
+        $competition->setDateDebut($dateDebut);
+        $competition->setDatefin($dateFin);
+
+        if (!empty($payload['nom'])) {
+            $competition->setNom((string) $payload['nom']);
+        }
+
+        $entityManager->persist($competition);
+        $entityManager->flush();
+
+        return $this->json([
+            'id' => $competition->getId(),
+            'dateDebut' => $competition->getDateDebut()?->format(DATE_ATOM),
+            'dateFin' => $competition->getDatefin()?->format(DATE_ATOM),
+            'nom' => $competition->getNom(),
+        ], Response::HTTP_CREATED);
     }
 }
