@@ -25,7 +25,7 @@ final class AurelienController extends AbstractController
             ->leftJoin('question.lieu', 'lieu')
             ->addSelect('lieu')
             ->addSelect('RAND() AS HIDDEN rand')
-            ->orderBy('rand')
+            ->orderBy('rand', 'ASC')
             ->setMaxResults(5)
             ->getQuery()
             ->getResult();
