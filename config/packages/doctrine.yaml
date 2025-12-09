@@ -26,6 +26,9 @@ doctrine:
                 alias: App
         controller_resolver:
             auto_mapping: false
+        dql:
+            numeric_functions:
+                rand: App\Doctrine\DQL\RandFunction
 
 when@test:
     doctrine:
