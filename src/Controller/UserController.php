@@ -56,9 +56,11 @@ final class UserController extends AbstractController
 
         $utils = new Utils();
 
+        // Vérifie le rôle ROLE_ADMIN
         $estAdmin = in_array('ROLE_ADMIN', $user->getRoles(), true);
 
-        $response = $utils->GetJsonResponse($request, $user, [
+        // Récupère la réponse et ajoute estAdmin
+        $responseData = $utils->GetJsonResponse($request, $user, [
             'password',
             'roles',
             'latEquipe.competitions',
@@ -66,16 +68,7 @@ final class UserController extends AbstractController
             'latEquipe.lestScores',
         ]);
 
-        try {
-            $responseData = json_decode($response->getContent(), true, 512, JSON_THROW_ON_ERROR);
-        } catch (\JsonException $e) {
-            return $this->jsonOk([
-                'success' => false,
-                'message' => 'RÃ©ponse JSON invalide',
-                'details' => $e->getMessage(),
-            ], Response::HTTP_INTERNAL_SERVER_ERROR);
-        }
-
+        // On suppose que GetJsonResponse renvoie un tableau associatif
         $responseData['estAdmin'] = $estAdmin;
 
         return $this->jsonOk($responseData);
