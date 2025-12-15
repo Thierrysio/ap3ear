@@ -56,13 +56,29 @@ final class UserController extends AbstractController
 
         $utils = new Utils();
 
-        return $utils->GetJsonResponse($request, $user, [
+        $estAdmin = in_array('ROLE_ADMIN', $user->getRoles(), true);
+
+        $response = $utils->GetJsonResponse($request, $user, [
             'password',
             'roles',
             'latEquipe.competitions',
             'latEquipe.lesUsers',
             'latEquipe.lestScores',
         ]);
+
+        try {
+            $responseData = json_decode($response->getContent(), true, 512, JSON_THROW_ON_ERROR);
+        } catch (\JsonException $e) {
+            return $this->jsonOk([
+                'success' => false,
+                'message' => 'Réponse JSON invalide',
+                'details' => $e->getMessage(),
+            ], Response::HTTP_INTERNAL_SERVER_ERROR);
+        }
+
+        $responseData['estAdmin'] = $estAdmin;
+
+        return $this->jsonOk($responseData);
     }
 
     private function jsonOk(mixed $data, int $status = 200, array $headers = []): JsonResponse
