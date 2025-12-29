@@ -60,6 +60,9 @@ class GameSession
     #[ORM\Column(type: 'json')]
     private array $settings = [];
 
+    #[ORM\Column(nullable: true)]
+    private ?int $tepreuveId = null;
+
     /**
      * @var Collection<int, Team>
      */
@@ -231,6 +234,18 @@ class GameSession
     public function setSettings(array $settings): self
     {
         $this->settings = $settings;
+
+        return $this;
+    }
+
+    public function getTepreuveId(): ?int
+    {
+        return $this->tepreuveId;
+    }
+
+    public function setTepreuveId(?int $tepreuveId): self
+    {
+        $this->tepreuveId = $tepreuveId;
 
         return $this;
     }

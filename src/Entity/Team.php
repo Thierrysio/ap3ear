@@ -41,6 +41,9 @@ class Team
     #[ORM\Column(type: 'datetime_immutable')]
     private DateTimeImmutable $createdAt;
 
+    #[ORM\Column(nullable: true)]
+    private ?int $tequipeId = null;
+
     /**
      * @var Collection<int, QrScan>
      */
@@ -148,6 +151,18 @@ class Team
     public function getCreatedAt(): DateTimeImmutable
     {
         return $this->createdAt;
+    }
+
+    public function getTequipeId(): ?int
+    {
+        return $this->tequipeId;
+    }
+
+    public function setTequipeId(?int $tequipeId): self
+    {
+        $this->tequipeId = $tequipeId;
+
+        return $this;
     }
 
     /**

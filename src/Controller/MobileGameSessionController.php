@@ -61,7 +61,8 @@ class MobileGameSessionController extends AbstractController
             ->setName($teamName)
             ->setMembersCount($membersCount)
             ->setDeviceId($data['deviceId'] ?? null)
-            ->setEvCurrent($gameSession->getEvStart());
+            ->setEvCurrent($gameSession->getEvStart())
+            ->setTequipeId(isset($data['tequipeId']) ? (int) $data['tequipeId'] : null);
 
         $this->entityManager->persist($team);
         $this->entityManager->flush();
