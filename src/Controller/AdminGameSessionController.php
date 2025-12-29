@@ -37,7 +37,8 @@ class AdminGameSessionController extends AbstractController
             ->setChoiceTimeoutSec((int) ($data['choiceTimeoutSec'] ?? 15))
             ->setGpsEnabled((bool) ($data['gpsEnabled'] ?? false))
             ->setGpsRadiusMeters(isset($data['gpsRadiusMeters']) ? (int) $data['gpsRadiusMeters'] : null)
-            ->setSettings((array) ($data['settings'] ?? []));
+            ->setSettings((array) ($data['settings'] ?? []))
+            ->setTepreuveId(isset($data['tepreuveId']) ? (int) $data['tepreuveId'] : null);
 
         $this->entityManager->persist($gameSession);
         $this->entityManager->flush();
@@ -65,7 +66,8 @@ class AdminGameSessionController extends AbstractController
         $team->setGameSession($session)
             ->setName((string) ($data['name'] ?? 'Equipe'))
             ->setMembersCount((int) ($data['membersCount'] ?? 1))
-            ->setEvCurrent($session->getEvStart());
+            ->setEvCurrent($session->getEvStart())
+            ->setTequipeId(isset($data['tequipeId']) ? (int) $data['tequipeId'] : null);
 
         $this->entityManager->persist($team);
         $this->entityManager->flush();
