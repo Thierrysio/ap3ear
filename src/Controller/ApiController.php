@@ -94,6 +94,22 @@ final class ApiController extends AbstractController
             'controller_name' => 'ApiController',
         ]);
     }
+    
+
+
+#[Route('/api/test-json', methods: ['POST'])]
+public function testJson(Request $request): JsonResponse
+{
+    $data = json_decode($request->getContent(), true);
+
+    $titre = $data['titre'];
+    $prix = $data['prix_depart'];
+
+    return new JsonResponse([
+        "titre" => $titre,
+        "prix" => $prix
+    ]);
+}
 
     // ---------------------------------------------------------------------
     // REGISTER (d?j? chez toi)
